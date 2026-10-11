@@ -11,7 +11,12 @@ import {
   shell
 } from 'electron'
 import type { IpcEventName, IpcEventPayload } from '@shared/ipc'
-import { assessDisk, type PreflightInfo, type RecordingState } from '@shared/recording'
+import {
+  assessDisk,
+  mainWindowCloseAction,
+  type PreflightInfo,
+  type RecordingState
+} from '@shared/recording'
 import { getFfmpegStatus, type StatusOptions } from './ffmpeg'
 import { resolveFfmpegTools } from './ffmpeg/media'
 import { freeDiskBytes } from './fs/atomic'
@@ -19,6 +24,7 @@ import { CaptureSources } from './capture/sources'
 import { loadWindowStateProbe } from './capture/window-state'
 import { FloatingController } from './floating/controller'
 import { loadForegroundTools } from './floating/foreground'
+import { createRecordingTray } from './floating/tray'
 import { createBarWindow, createNoteWindow, readDisplays } from './floating/windows'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
@@ -62,6 +68,15 @@ if (!app.requestSingleInstanceLock()) {
 
   const openMainWindow = (): BrowserWindow => {
     const window = createMainWindow()
+    // Durante a gravação o X só oculta a janela (a barra continua); fora dela fecha o app.
+    // Ao sair de verdade (`quitRequested`, vindo da bandeja ou do before-quit) nada é barrado.
+    window.on('close', (event) => {
+      if (quitRequested || !recording) return
+      if (mainWindowCloseAction(recording.getState().phase) === 'hide') {
+        event.preventDefault()
+        window.hide()
+      }
+    })
     window.on('closed', () => {
       if (mainWindow === window) mainWindow = null
       // A janela de gravação é oculta e mantém o app vivo: fechar a principal durante uma
@@ -189,6 +204,13 @@ if (!app.requestSingleInstanceLock()) {
           if (typeof token === 'number') foreground.restore(token)
         }
       },
+      tray: createRecordingTray({
+        showMain: showMainWindow,
+        // Mesmo caminho do botão da barra; o resultado aparece na principal ao finalizar.
+        stop: () => void service.stop(),
+        // Sair no meio da gravação: o `before-quit` para, salva e só então fecha o app.
+        quit: () => app.quit()
+      }),
       mainWindow: {
         hide: () => mainWindow?.hide(),
         // Ao fechar o app no meio da gravação, a janela principal não reaparece durante a finalização.

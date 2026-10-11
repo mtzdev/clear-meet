@@ -52,6 +52,7 @@ function createHarness(overrides: Partial<FloatingDeps> = {}) {
   }
   const restored: unknown[] = []
   const order: string[] = []
+  const tray = { calls: [] as string[] }
   const main = { hidden: 0, shown: 0 }
   const shortcut = { accepts: true, throws: false }
   let onMoved: (position: Point) => void = () => undefined
@@ -123,6 +124,10 @@ function createHarness(overrides: Partial<FloatingDeps> = {}) {
       hide: () => main.hidden++,
       show: () => main.shown++
     },
+    tray: {
+      show: () => tray.calls.push('show'),
+      hide: () => tray.calls.push('hide')
+    },
     now: () => now.value,
     log: (message) => log.push(message),
     ...overrides
@@ -148,6 +153,7 @@ function createHarness(overrides: Partial<FloatingDeps> = {}) {
     note,
     restored,
     order,
+    tray,
     main,
     shortcut,
     setState,
@@ -203,6 +209,37 @@ describe('FloatingController: ciclo da barra', () => {
     expect(h.main.hidden).toBe(1)
     h.setState(recordingAt())
     expect(h.main.shown).toBe(1)
+  })
+
+  it('bandeja: aparece no pedido de início e some ao finalizar; início que falha também a remove', () => {
+    const h = createHarness()
+    h.setState({ phase: 'starting' })
+    h.setState(recordingAt())
+    h.setState({ phase: 'paused', meeting, clock: clockStart(T0), warnings: [] })
+    h.setState(recordingAt())
+    expect(h.tray.calls).toEqual(['show'])
+    h.setState({ phase: 'finalizing', meeting, clock: clockStart(T0) })
+    h.setState({ phase: 'idle', finished: null })
+    expect(h.tray.calls).toEqual(['show', 'hide'])
+
+    h.setState({ phase: 'starting' })
+    h.setState({ phase: 'idle', finished: null })
+    expect(h.tray.calls).toEqual(['show', 'hide', 'show', 'hide'])
+  })
+
+  it('erro ao criar o ícone da bandeja não atrapalha a gravação', () => {
+    const h = createHarness({
+      tray: {
+        show: () => {
+          throw new Error('sem bandeja')
+        },
+        hide: () => undefined
+      }
+    })
+    h.setState({ phase: 'starting' })
+    h.setState(recordingAt())
+    expect(h.bar.created).toBe(1)
+    expect(h.log.some((line) => line.includes('bandeja'))).toBe(true)
   })
 
   it('pausar e retomar não recriam nada', () => {

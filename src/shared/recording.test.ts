@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { assessDisk, DISK_ABORT_BYTES, DISK_CRITICAL_BYTES, DISK_LOW_BYTES } from './recording'
+import {
+  assessDisk,
+  DISK_ABORT_BYTES,
+  DISK_CRITICAL_BYTES,
+  DISK_LOW_BYTES,
+  mainWindowCloseAction
+} from './recording'
+
+describe('mainWindowCloseAction', () => {
+  it('durante a gravação o X só oculta; fora dela (e na finalização) fecha o app', () => {
+    expect(mainWindowCloseAction('starting')).toBe('hide')
+    expect(mainWindowCloseAction('recording')).toBe('hide')
+    expect(mainWindowCloseAction('paused')).toBe('hide')
+    expect(mainWindowCloseAction('finalizing')).toBe('close')
+    expect(mainWindowCloseAction('idle')).toBe('close')
+  })
+})
 
 describe('assessDisk', () => {
   it('classifica o espaço livre', () => {

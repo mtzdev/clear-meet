@@ -50,6 +50,8 @@ export interface FloatingDeps {
   /** Janela que estava em primeiro plano (para devolver o foco ao fechar o campo). */
   foreground: { capture(): unknown; restore(token: unknown): void }
   mainWindow: { hide(): void; show(): void }
+  /** Ícone na bandeja: existe só enquanto há gravação ativa (idempotente). */
+  tray: { show(): void; hide(): void }
   now(): number
   log?(message: string): void
 }
@@ -74,6 +76,7 @@ export class FloatingController {
   private active = false
   /** A janela principal foi ocultada por nós (no início do pedido de gravação ou ao gravar). */
   private mainHidden = false
+  private trayShown = false
   private registered: string | null = null
   private info: FloatingInfo
   /** Anotação em edição: `offsetMs` fica `null` até a primeira tecla. */
@@ -96,11 +99,26 @@ export class FloatingController {
   onRecordingState(state: RecordingState): void {
     // A principal some já no pedido de início, antes da captura começar, para não entrar no
     // começo do Vídeo. Se o início falhar (volta a ocioso sem gravar), ela reaparece.
+    this.syncTray(state)
     if (state.phase === 'starting') this.hideMain()
     else if (state.phase === 'recording' || state.phase === 'paused') this.activate()
     else if (state.phase === 'finalizing' || state.phase === 'idle') {
       this.deactivate()
       this.restoreMain()
+    }
+  }
+
+  /** Bandeja: do pedido de início até parar; some ao finalizar ou se o início falhar. */
+  private syncTray(state: RecordingState): void {
+    const wanted =
+      state.phase === 'starting' || state.phase === 'recording' || state.phase === 'paused'
+    if (wanted === this.trayShown) return
+    this.trayShown = wanted
+    try {
+      if (wanted) this.deps.tray.show()
+      else this.deps.tray.hide()
+    } catch (error) {
+      this.log(`erro no ícone da bandeja: ${messageOf(error)}`)
     }
   }
 

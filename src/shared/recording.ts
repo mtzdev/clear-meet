@@ -93,6 +93,18 @@ export type RecordingState =
 
 export const IDLE_STATE: RecordingState = { phase: 'idle', finished: null }
 
+/** O que o X da janela principal faz. */
+export type MainWindowCloseAction = 'hide' | 'close'
+
+/**
+ * Durante a gravação (iniciando, gravando, pausada) o X só oculta a janela principal: a
+ * barra continua e fechar o app por engano perderia o controle da gravação. Fora dela fecha
+ * o app; na finalização também fecha (o app espera a finalização terminar antes de sair).
+ */
+export function mainWindowCloseAction(phase: RecordingState['phase']): MainWindowCloseAction {
+  return phase === 'starting' || phase === 'recording' || phase === 'paused' ? 'hide' : 'close'
+}
+
 /** Níveis de pico (0 a 1) do microfone e do áudio do sistema, ~10 vezes por segundo. */
 export interface AudioLevels {
   mic: number
