@@ -15,11 +15,6 @@ export interface RecorderStartParams {
   preset: QualityPreset
   /** Compactação ligada define o bitrate ao vivo (ADR 0003). */
   compaction: boolean
-  /**
-   * Avisar quando a fonte parar de enviar quadros. Só faz sentido para janelas: uma tela
-   * parada (nada mudando) também não envia quadros, e isso não é problema.
-   */
-  watchStalls: boolean
 }
 
 export interface RecorderStarted {
@@ -80,8 +75,6 @@ export type RecorderReply =
 export type RecorderEvent =
   | { type: 'ready' }
   | { type: 'levels'; mic: number; system: number }
-  /** `true` = a fonte parou de enviar quadros (janela minimizada); `false` = voltou. */
-  | { type: 'frames-stalled'; stalled: boolean }
   /** `true` = o codificador de vídeo travou (quadros entram, nenhum byte sai); `false` = voltou. */
   | { type: 'video-stalled'; stalled: boolean }
   /** A track de vídeo terminou (janela fechada, tela desconectada). */

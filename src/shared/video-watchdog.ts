@@ -1,13 +1,17 @@
 /** Sem bytes do gravador de vídeo por mais que isto (com quadros sendo entregues) = codificador travado. */
 export const VIDEO_STALL_THRESHOLD_MS = 20_000
-/** Os quadros precisam estar chegando ao codificador nesta janela para a falta de bytes contar como travamento. */
+/**
+ * Os quadros precisam estar chegando ao codificador nesta janela para a falta de bytes contar
+ * como travamento. Também é o tamanho da lacuna sem quadros que "zera" a contagem de bytes.
+ */
 const FEED_WINDOW_MS = 5_000
 
 /**
  * Detecta o travamento do codificador de vídeo: o canvas continua entregando quadros ao
  * `MediaRecorder`, mas ele não emite mais bytes. O MP4 fragmentado entrega dados a cada ~7 s,
- * então 20 s sem nada é um sinal confiável. Se a fonte parou de enviar quadros (janela
- * minimizada), a falta de bytes é esperada e não conta. O relógio vem de fora (`now`).
+ * então 20 s sem nada é um sinal confiável. Se não há quadros chegando ao codificador, a falta
+ * de bytes é esperada e não conta, e o primeiro quadro depois de uma lacuna recomeça a contagem
+ * (o gravador não tinha o que emitir durante ela). O relógio vem de fora (`now`).
  */
 export class VideoEncoderWatchdog {
   private lastDataAt: number
@@ -29,6 +33,8 @@ export class VideoEncoderWatchdog {
 
   /** Um quadro foi entregue ao gravador de vídeo. */
   onFeed(now: number): void {
+    // Voltou de uma lacuna sem quadros: o silêncio de bytes nela não é travamento.
+    if (now - this.lastFeedAt > FEED_WINDOW_MS) this.lastDataAt = now
     this.lastFeedAt = now
   }
 

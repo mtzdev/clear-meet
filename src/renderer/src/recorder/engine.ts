@@ -14,7 +14,6 @@ import type {
   RecorderStartParams
 } from '@shared/recorder'
 import type { MicSelection } from '@shared/recording'
-import { FrameStallDetector } from '@shared/stall-detector'
 import { VideoEncoderWatchdog } from '@shared/video-watchdog'
 import { createMixChain } from './mix'
 import { peekSourceSize, startVideoPipeline, type VideoPipeline } from './pipeline'
@@ -28,7 +27,6 @@ const AUDIO_MIMES = ['audio/webm;codecs=opus']
 
 /** Os níveis são medidos a cada 100 ms e enviados a ~5 Hz (pico das duas medidas). */
 const LEVEL_INTERVAL_MS = 100
-const STALL_CHECK_INTERVAL_MS = 500
 const WATCHDOG_CHECK_INTERVAL_MS = 2000
 
 function pickMime(candidates: string[]): string | null {
@@ -125,7 +123,6 @@ interface Capture {
   audioRecorder: ChunkedRecorder
   videoRecorder: ChunkedRecorder | null
   timers: number[]
-  detector: FrameStallDetector | null
   watchdog: VideoEncoderWatchdog | null
 }
 
@@ -242,8 +239,6 @@ export class RecorderEngine {
       sourceSize = (await peekSourceSize(sourceTrack)) ?? sourceSize
     }
     const canvas = resolveCanvasSize(params.preset, sourceSize)
-    const detector =
-      params.hasVideo && params.watchStalls ? new FrameStallDetector(performance.now()) : null
     const watchdog = params.hasVideo ? new VideoEncoderWatchdog(performance.now()) : null
     let video: VideoPipeline | null = null
     if (params.hasVideo && sourceTrack) {
@@ -251,7 +246,6 @@ export class RecorderEngine {
         source: sourceTrack,
         canvas,
         fps: CAPTURE_FPS,
-        onFrame: () => detector?.onFrame(performance.now()),
         onFed: () => watchdog?.onFeed(performance.now()),
         onError: (message) => this.report(message)
       })
@@ -299,14 +293,6 @@ export class RecorderEngine {
         heldSystem = 0
       }, LEVEL_INTERVAL_MS)
     ]
-    if (detector) {
-      timers.push(
-        window.setInterval(() => {
-          const stalled = detector.check(performance.now())
-          if (stalled !== null) this.bridge.sendEvent({ type: 'frames-stalled', stalled })
-        }, STALL_CHECK_INTERVAL_MS)
-      )
-    }
     if (watchdog) {
       timers.push(
         window.setInterval(() => {
@@ -324,7 +310,6 @@ export class RecorderEngine {
       audioRecorder,
       videoRecorder,
       timers,
-      detector,
       watchdog
     }
 
@@ -394,9 +379,6 @@ export class RecorderEngine {
     if (!capture) throw new Error('Não há captura em andamento')
     capture.audioRecorder.recorder.pause()
     capture.videoRecorder?.recorder.pause()
-    if (capture.detector?.setPaused(true, performance.now()) === false) {
-      this.bridge.sendEvent({ type: 'frames-stalled', stalled: false })
-    }
     if (capture.watchdog?.setPaused(true, performance.now()) === false) {
       this.bridge.sendEvent({ type: 'video-stalled', stalled: false })
     }
@@ -408,7 +390,6 @@ export class RecorderEngine {
     if (!capture) throw new Error('Não há captura em andamento')
     capture.audioRecorder.recorder.resume()
     capture.videoRecorder?.recorder.resume()
-    capture.detector?.setPaused(false, performance.now())
     capture.watchdog?.setPaused(false, performance.now())
     return { at: Date.now() }
   }

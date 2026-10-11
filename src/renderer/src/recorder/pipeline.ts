@@ -21,14 +21,18 @@ export interface VideoPipeline {
  * desenhado num canvas de tamanho fixo — encaixado com letterbox, sem ampliar — e emitido por
  * `captureStream(0)` + `requestFrame()`: um quadro de saída por quadro de entrada, sem
  * `requestAnimationFrame` (que não roda com a janela oculta).
+ *
+ * O Windows Graphics Capture só entrega quadros quando o conteúdo muda: com a tela parada a
+ * fonte fica segundos em silêncio. Para o codificador seguir recebendo quadros regulares (MP4
+ * sem lacunas, bytes saindo do gravador, watchdog confiável), um timer repete o conteúdo atual
+ * do canvas a `fps` quando a fonte não entrega nada. A repetição não segura nenhum
+ * `VideoFrame` da captura (isso esgotaria o pool de buffers do WGC): redesenha o próprio canvas.
  */
 export function startVideoPipeline(options: {
   source: MediaStreamTrack
   canvas: Size
   fps: number
-  /** Chamado a cada quadro entregue pela fonte (alimenta a detecção de janela minimizada). */
-  onFrame: () => void
-  /** Chamado a cada quadro entregue ao gravador (`requestFrame`). */
+  /** Chamado a cada quadro entregue ao gravador (`requestFrame`), inclusive as repetições. */
   onFed: () => void
   onError: (message: string) => void
 }): VideoPipeline {
@@ -50,6 +54,8 @@ export function startVideoPipeline(options: {
   let fitKey = ''
   let lastSource: Size = { width: 0, height: 0 }
   let reportedError = false
+  let lastSourceAt = performance.now()
+  const intervalMs = 1000 / fps
 
   const loop = (async () => {
     for (;;) {
@@ -62,7 +68,7 @@ export function startVideoPipeline(options: {
       if (result.done) break
       const frame = result.value
       try {
-        options.onFrame()
+        lastSourceAt = performance.now()
         // Teto de fps: descarta o excesso se a fonte entregar mais que o pedido.
         if (!limiter.accept(frame.timestamp)) continue
 
@@ -89,11 +95,30 @@ export function startVideoPipeline(options: {
     }
   })()
 
+  // Repete o último conteúdo enquanto a fonte está calada (tela/janela parada). Com a fonte
+  // ativa nunca entra: só depois de 1,5 intervalo sem quadro dela, o que absorve o jitter.
+  const repeatTimer = window.setInterval(() => {
+    if (performance.now() - lastSourceAt < intervalMs * 1.5) return
+    try {
+      // `requestFrame()` num canvas inalterado pode não gerar quadro; redesenhar o canvas
+      // sobre si mesmo o marca como modificado sem alterar nenhum pixel.
+      context.drawImage(element, 0, 0)
+      track.requestFrame()
+      options.onFed()
+    } catch (error) {
+      if (!reportedError) {
+        reportedError = true
+        options.onError(`Erro ao repetir o último quadro: ${String(error)}`)
+      }
+    }
+  }, intervalMs)
+
   return {
     track,
     keepAlive: [element, context, output, reader],
     sourceSize: () => lastSource,
     async stop() {
+      window.clearInterval(repeatTimer)
       await reader.cancel().catch(() => undefined)
       await loop
       track.stop()

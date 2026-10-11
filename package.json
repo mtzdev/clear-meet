@@ -23,6 +23,7 @@
     "fetch:ffmpeg": "tsx scripts/fetch-ffmpeg.ts"
   },
   "dependencies": {
+    "koffi": "^3.3.3",
     "yauzl": "^3.4.0"
   },
   "devDependencies": {

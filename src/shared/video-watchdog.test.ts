@@ -34,6 +34,27 @@ describe('VideoEncoderWatchdog', () => {
     expect(watchdog.check(40_000)).toBeNull()
   })
 
+  it('lacuna longa sem quadros (tela parada) e um quadro novo: não dispara (cenário real)', () => {
+    const watchdog = new VideoEncoderWatchdog(0)
+    watchdog.onData(7000)
+    feed(watchdog, 0, 1000)
+    // Janela parada por 36 s: nenhum quadro, nenhum byte. Depois chega um quadro.
+    watchdog.onFeed(37_000)
+    expect(watchdog.check(37_700)).toBeNull()
+    expect(watchdog.check(39_000)).toBeNull()
+    // Voltando a alimentar sem bytes por mais de 20 s depois disso, aí sim dispara.
+    feed(watchdog, 37_000, 58_000)
+    expect(watchdog.check(56_000)).toBeNull()
+    expect(watchdog.check(58_000)).toBe(true)
+  })
+
+  it('alimentação contínua sem nenhum byte por mais de 20 s dispara', () => {
+    const watchdog = new VideoEncoderWatchdog(0)
+    feed(watchdog, 0, 25_000)
+    expect(watchdog.check(19_000)).toBeNull()
+    expect(watchdog.check(21_000)).toBe(true)
+  })
+
   it('pausa não dispara; ao retomar, a contagem recomeça e o aviso ativo é desfeito', () => {
     const watchdog = new VideoEncoderWatchdog(0)
     watchdog.onData(1000)

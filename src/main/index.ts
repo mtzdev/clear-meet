@@ -15,6 +15,7 @@ import { getFfmpegStatus, type StatusOptions } from './ffmpeg'
 import { resolveFfmpegTools } from './ffmpeg/media'
 import { freeDiskBytes } from './fs/atomic'
 import { CaptureSources } from './capture/sources'
+import { loadWindowStateProbe } from './capture/window-state'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
 import { isDirectChild, renameMeeting } from './meetings/repository'
@@ -116,6 +117,7 @@ if (!app.requestSingleInstanceLock()) {
           recorderFactory.isRecorder(contents))
     )
 
+    const windowState = await loadWindowStateProbe(log)
     const service = new RecordingService({
       config: () => ({ settings: settings.get(), meetingsDir: meetingsDir() }),
       getTools,
@@ -123,6 +125,7 @@ if (!app.requestSingleInstanceLock()) {
       selectSource: (source) => captureSources.select(source),
       emit: sendToRenderer,
       freeBytes: freeDiskBytes,
+      windowState,
       keepAwake: () => {
         const id = powerSaveBlocker.start('prevent-app-suspension')
         return () => {

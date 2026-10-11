@@ -36,6 +36,7 @@ import {
   type StopReason
 } from '@shared/recording'
 import type { AppSettings } from '@shared/settings'
+import { parseWindowHandle, type WindowStateProbe } from '../capture/window-state'
 import type { FfmpegTools, RunProcess } from '../ffmpeg/media'
 import { createUniqueFolder, meetingFolderBase, suggestMeetingName } from '../meetings/folder-name'
 import { newMeetingId, writeMeeting } from '../meetings/repository'
@@ -76,12 +77,18 @@ export interface RecordingServiceDeps {
   freeBytes(dir: string): Promise<number | null>
   /** Impede o Windows de suspender durante a gravação; devolve a função que libera. */
   keepAwake(): () => void
+  /**
+   * Consulta o estado da janela gravada (minimizada, fechada). Sem ela, o aviso de janela
+   * minimizada não existe.
+   */
+  windowState?: WindowStateProbe
   now(): number
   run?: RunProcess
   log?(message: string): void
 }
 
 const DISK_CHECK_INTERVAL_MS = 30_000
+const WINDOW_CHECK_INTERVAL_MS = 1000
 const START_TIMEOUT_MS = 30_000
 const STOP_TIMEOUT_MS = 30_000
 
@@ -111,6 +118,7 @@ interface ActiveSession {
   warnings: Set<RecordingWarning>
   stopping: Promise<Result<FinishedRecording>> | null
   diskTimer: NodeJS.Timeout | null
+  windowTimer: NodeJS.Timeout | null
   releaseAwake: (() => void) | null
 }
 
@@ -243,6 +251,7 @@ export class RecordingService {
         warnings: new Set(),
         stopping: null,
         diskTimer: null,
+        windowTimer: null,
         releaseAwake: null
       }
       this.session = session
@@ -252,8 +261,7 @@ export class RecordingService {
         hasVideo,
         mic: request.mic,
         preset: request.quality,
-        compaction: settings.compaction,
-        watchStalls: request.source.kind === 'window'
+        compaction: settings.compaction
       }
       const started = await withTimeout(
         session.recorder.send({ name: 'start', params }),
@@ -290,6 +298,7 @@ export class RecordingService {
       session.releaseAwake = this.deps.keepAwake()
       session.diskTimer = setInterval(() => void this.checkDisk(), DISK_CHECK_INTERVAL_MS)
       session.diskTimer.unref()
+      this.watchWindow(session, request.source)
       this.log(
         `gravando "${name}" em ${folder} (${
           started.video
@@ -315,6 +324,7 @@ export class RecordingService {
   ): Promise<Result<null>> {
     session?.recorder?.destroy()
     if (session) {
+      if (session.windowTimer) clearInterval(session.windowTimer)
       await session.writers.audio.close().catch(() => undefined)
       await session.writers.video?.close().catch(() => undefined)
       await rm(session.folder, { recursive: true, force: true }).catch(() => undefined)
@@ -356,11 +366,6 @@ export class RecordingService {
       case 'levels':
         this.deps.emit('recording:level', { mic: event.mic, system: event.system })
         break
-      case 'frames-stalled':
-        if (event.stalled) session.warnings.add('window-minimized')
-        else session.warnings.delete('window-minimized')
-        this.publishActive()
-        break
       case 'video-stalled':
         this.onVideoStalled(session, event.stalled)
         break
@@ -394,6 +399,28 @@ export class RecordingService {
     }
     void writeMeeting(session.folder, session.meeting).catch(() => undefined)
     this.publishActive()
+  }
+
+  /**
+   * Janela minimizada: a falta de quadros não serve de sinal (o Windows só entrega quadros
+   * quando o conteúdo muda), então o estado da janela é consultado direto no sistema, 1x/s.
+   * Pausada, não há o que avisar. Janela que não existe mais não é "minimizada": o fim da
+   * fonte já encerra a gravação (`source-ended`).
+   */
+  private watchWindow(session: ActiveSession, source: CaptureSourceRef): void {
+    const probe = this.deps.windowState
+    const hwnd = source.kind === 'window' ? parseWindowHandle(source.id) : null
+    if (!probe || hwnd === null) return
+    session.windowTimer = setInterval(() => {
+      if (this.session !== session || session.stopping || !session.clock) return
+      if (!isClockRunning(session.clock)) return
+      const minimized = probe(hwnd) === 'minimized'
+      if (minimized === session.warnings.has('window-minimized')) return
+      if (minimized) session.warnings.add('window-minimized')
+      else session.warnings.delete('window-minimized')
+      this.publishActive()
+    }, WINDOW_CHECK_INTERVAL_MS)
+    session.windowTimer.unref()
   }
 
   private async checkDisk(): Promise<void> {
@@ -467,6 +494,7 @@ export class RecordingService {
     this.setState({ phase: 'finalizing', meeting: session.info, clock })
 
     if (session.diskTimer) clearInterval(session.diskTimer)
+    if (session.windowTimer) clearInterval(session.windowTimer)
     // Pede ao gravador que feche os arquivos: ele só responde depois de entregar o último pedaço.
     if (session.recorder) {
       try {

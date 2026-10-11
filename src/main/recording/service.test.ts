@@ -19,6 +19,7 @@ import {
   type StartRecordingRequest
 } from '@shared/recording'
 import { DEFAULT_SETTINGS } from '@shared/settings'
+import type { WindowState } from '../capture/window-state'
 import { readMeeting } from '../meetings/repository'
 import { createFakeMedia, FAKE_TOOLS } from './fake-media'
 import { RecordingService, type RecorderSession, type RecorderSink } from './service'
@@ -59,6 +60,7 @@ interface Harness {
   levels: AudioLevels[]
   now: { value: number }
   free: { value: number | null }
+  windowState: { value: WindowState; calls: number[] }
   setStart(result: RecorderStarted | Error): void
   setTools(available: boolean): void
   setSourceAvailable(available: boolean): void
@@ -80,6 +82,7 @@ function createHarness(): Harness {
   const levels: AudioLevels[] = []
   const now = { value: T0 }
   const free: { value: number | null } = { value: 100 * GB }
+  const windowState: Harness['windowState'] = { value: 'normal', calls: [] }
   let startResult: RecorderStarted | Error = started()
   let tools = true
   let sourceAvailable = true
@@ -123,6 +126,10 @@ function createHarness(): Harness {
     },
     freeBytes: () => Promise.resolve(free.value),
     keepAwake: () => () => undefined,
+    windowState: (hwnd) => {
+      windowState.calls.push(hwnd)
+      return windowState.value
+    },
     now: () => now.value,
     run: fake.run
   })
@@ -139,6 +146,7 @@ function createHarness(): Harness {
     levels,
     now,
     free,
+    windowState,
     setStart: (result) => (startResult = result),
     setTools: (available) => (tools = available),
     setSourceAvailable: (available) => (sourceAvailable = available),
@@ -171,7 +179,7 @@ describe('RecordingService: gravação completa', () => {
     const start = h.commands[0]
     expect(start).toMatchObject({
       name: 'start',
-      params: { hasVideo: true, preset: '1080p', compaction: true, watchStalls: true }
+      params: { hasVideo: true, preset: '1080p', compaction: true }
     })
 
     // Instante zero = início do gravador de áudio.
@@ -344,13 +352,57 @@ describe('RecordingService: falhas ao iniciar', () => {
 })
 
 describe('RecordingService: durante a gravação', () => {
-  it('janela minimizada: o aviso aparece e some quando os quadros voltam', async () => {
+  it('janela minimizada: o aviso aparece e some quando ela é restaurada', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const h = createHarness()
     await h.service.start(windowRequest)
-    h.sink().event({ type: 'frames-stalled', stalled: true })
-    expect(h.service.getState()).toMatchObject({ warnings: ['window-minimized'] })
-    h.sink().event({ type: 'frames-stalled', stalled: false })
+    await vi.advanceTimersByTimeAsync(3000)
     expect(h.service.getState()).toMatchObject({ warnings: [] })
+    // O HWND vem do id da Fonte de captura ("window:1:0").
+    expect(new Set(h.windowState.calls)).toEqual(new Set([1]))
+
+    h.windowState.value = 'minimized'
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(h.service.getState()).toMatchObject({ warnings: ['window-minimized'] })
+    h.windowState.value = 'normal'
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(h.service.getState()).toMatchObject({ warnings: [] })
+  })
+
+  it('janela que não existe mais não é acusada como minimizada', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const h = createHarness()
+    await h.service.start(windowRequest)
+    h.windowState.value = 'gone'
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(h.service.getState()).toMatchObject({ warnings: [] })
+  })
+
+  it('tela inteira não consulta o estado de nenhuma janela', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const h = createHarness()
+    await h.service.start({
+      ...windowRequest,
+      source: { kind: 'screen', id: 'screen:0:0', name: 'Tela 1' }
+    })
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(h.windowState.calls).toEqual([])
+  })
+
+  it('pausada, a janela minimizada não gera aviso; ao retomar, volta a ser verificada', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const h = createHarness()
+    await h.service.start(windowRequest)
+    h.windowState.value = 'minimized'
+    await h.service.pause()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(h.service.getState()).toMatchObject({ phase: 'paused', warnings: [] })
+    await h.service.resume()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(h.service.getState()).toMatchObject({
+      phase: 'recording',
+      warnings: ['window-minimized']
+    })
   })
 
   it('codificador de vídeo travado: avisa, registra no meeting.json e o áudio segue', async () => {
@@ -380,9 +432,12 @@ describe('RecordingService: durante a gravação', () => {
   })
 
   it('pausar também desfaz o aviso de janela minimizada', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const h = createHarness()
     await h.service.start(windowRequest)
-    h.sink().event({ type: 'frames-stalled', stalled: true })
+    h.windowState.value = 'minimized'
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(h.service.getState()).toMatchObject({ warnings: ['window-minimized'] })
     await h.service.pause()
     expect(h.service.getState()).toMatchObject({ phase: 'paused', warnings: [] })
   })
