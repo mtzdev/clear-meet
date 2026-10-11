@@ -1,4 +1,5 @@
 import type { FfmpegStatus } from '@shared/ffmpeg'
+import type { FloatingInfo } from '@shared/floating'
 import type { IpcHandlers } from '@shared/ipc'
 import type {
   CaptureSourceInfo,
@@ -36,6 +37,16 @@ export interface HandlerDeps {
     getReport(): RecoveryReport
     retry(): Promise<RecoveryReport>
   }
+  /** Barra flutuante e Anotações ao vivo. */
+  floating: {
+    getInfo(): FloatingInfo
+    resizeBar(height: number): void
+    showMain(): void
+    openEditor(): void
+    beginNote(): void
+    saveNote(text: string): Promise<Result<null>>
+    cancelNote(): void
+  }
 }
 
 export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
@@ -61,6 +72,28 @@ export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
     'settings:get': () => deps.settings.view(),
     'settings:update': (patch) => deps.settings.update(patch),
     'recovery:getReport': () => deps.recovery.getReport(),
-    'recovery:retry': () => deps.recovery.retry()
+    'recovery:retry': () => deps.recovery.retry(),
+    'floating:getInfo': () => deps.floating.getInfo(),
+    'floating:resize': (request) => {
+      deps.floating.resizeBar(request.height)
+      return null
+    },
+    'floating:showMain': () => {
+      deps.floating.showMain()
+      return null
+    },
+    'notes:openEditor': () => {
+      deps.floating.openEditor()
+      return null
+    },
+    'notes:begin': () => {
+      deps.floating.beginNote()
+      return null
+    },
+    'notes:save': (request) => deps.floating.saveNote(request.text),
+    'notes:cancel': () => {
+      deps.floating.cancelNote()
+      return null
+    }
   }
 }

@@ -1,4 +1,5 @@
 import type { FfmpegStatus } from './ffmpeg'
+import type { FloatingInfo, NoteSavedEvent } from './floating'
 import type {
   AudioLevels,
   CaptureSourceInfo,
@@ -40,6 +41,20 @@ export interface IpcContract {
   'settings:update': { request: SettingsPatch; response: SettingsView }
   'recovery:getReport': { request: void; response: RecoveryReport }
   'recovery:retry': { request: void; response: RecoveryReport }
+  /** Barra flutuante: atalho das Anotações e se ele foi registrado. */
+  'floating:getInfo': { request: void; response: FloatingInfo }
+  /** A barra pede a altura que o conteúdo precisa (cresce com a linha de avisos). */
+  'floating:resize': { request: { height: number }; response: null }
+  /** Traz de volta a janela principal (que fica oculta durante a gravação). */
+  'floating:showMain': { request: void; response: null }
+  /** Abre o campo de Anotação (botão da barra; o atalho global faz o mesmo). */
+  'notes:openEditor': { request: void; response: null }
+  /** O usuário começou a digitar: fixa o Instante da Anotação (primeira tecla menos o recuo). */
+  'notes:begin': { request: void; response: null }
+  /** Salva a Anotação no `meeting.json` e fecha o campo; texto vazio não salva. */
+  'notes:save': { request: { text: string }; response: Result<null> }
+  /** Fecha o campo sem salvar e devolve o foco ao app anterior. */
+  'notes:cancel': { request: void; response: null }
 }
 
 /** Eventos main -> renderer (a UI se inscreve com `window.api.on`). */
@@ -47,6 +62,11 @@ export interface IpcEventContract {
   'recording:state': RecordingState
   'recording:level': AudioLevels
   'recovery:report': RecoveryReport
+  'floating:info': FloatingInfo
+  /** Uma Anotação foi salva (a barra mostra um aviso breve). */
+  'notes:saved': NoteSavedEvent
+  /** O campo de Anotação foi aberto: a UI limpa o texto e foca. */
+  'notes:opened': null
 }
 
 export type IpcEventName = keyof IpcEventContract
@@ -91,13 +111,23 @@ export const IPC_CHANNELS = {
   'settings:get': true,
   'settings:update': true,
   'recovery:getReport': true,
-  'recovery:retry': true
+  'recovery:retry': true,
+  'floating:getInfo': true,
+  'floating:resize': true,
+  'floating:showMain': true,
+  'notes:openEditor': true,
+  'notes:begin': true,
+  'notes:save': true,
+  'notes:cancel': true
 } as const satisfies Record<IpcChannel, true>
 
 export const IPC_EVENTS = {
   'recording:state': true,
   'recording:level': true,
-  'recovery:report': true
+  'recovery:report': true,
+  'floating:info': true,
+  'notes:saved': true,
+  'notes:opened': true
 } as const satisfies Record<IpcEventName, true>
 
 export function isIpcEvent(value: unknown): value is IpcEventName {

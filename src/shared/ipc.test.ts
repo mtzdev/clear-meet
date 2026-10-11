@@ -26,8 +26,15 @@ describe('contrato de IPC', () => {
       'app:getVersion',
       'capture:listSources',
       'ffmpeg:status',
+      'floating:getInfo',
+      'floating:resize',
+      'floating:showMain',
       'meeting:rename',
       'meeting:reveal',
+      'notes:begin',
+      'notes:cancel',
+      'notes:openEditor',
+      'notes:save',
       'recording:acknowledge',
       'recording:getState',
       'recording:pause',
@@ -59,6 +66,9 @@ describe('contrato de IPC', () => {
     expect(isIpcEvent('recording:state')).toBe(true)
     expect(isIpcEvent('app:getVersion')).toBe(false)
     expect(Object.keys(IPC_EVENTS).sort()).toEqual([
+      'floating:info',
+      'notes:opened',
+      'notes:saved',
       'recording:level',
       'recording:state',
       'recovery:report'

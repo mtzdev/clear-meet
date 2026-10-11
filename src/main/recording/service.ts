@@ -9,7 +9,13 @@ import {
   isClockRunning,
   type ClockSnapshot
 } from '@shared/clock'
-import { MEETING_FILES, MEETING_SCHEMA_VERSION, type MeetingFile } from '@shared/meeting'
+import {
+  MEETING_FILES,
+  MEETING_SCHEMA_VERSION,
+  type MeetingFile,
+  type MeetingNote
+} from '@shared/meeting'
+import { insertNote, normalizeNoteText } from '@shared/notes'
 import type {
   RecorderChunkKind,
   RecorderCommand,
@@ -116,6 +122,8 @@ interface ActiveSession {
   recorder: RecorderSession | null
   writers: { video: PartWriter | null; audio: PartWriter }
   warnings: Set<RecordingWarning>
+  /** Fila de gravações do `meeting.json` da sessão (cada uma grava o estado mais recente). */
+  persisting: Promise<void>
   stopping: Promise<Result<FinishedRecording>> | null
   diskTimer: NodeJS.Timeout | null
   windowTimer: NodeJS.Timeout | null
@@ -249,6 +257,7 @@ export class RecordingService {
           audio: await PartWriter.open(join(folder, MEETING_FILES.audioPart))
         },
         warnings: new Set(),
+        persisting: Promise.resolve(),
         stopping: null,
         diskTimer: null,
         windowTimer: null,
@@ -397,8 +406,55 @@ export class RecordingService {
       ...session.meeting,
       issues: [...session.meeting.issues, { code: 'video-encoder-stalled', atMs }]
     }
-    void writeMeeting(session.folder, session.meeting).catch(() => undefined)
+    void this.persist(session).catch(() => undefined)
     this.publishActive()
+  }
+
+  /**
+   * Grava o `meeting.json` da sessão (o estado mais recente), em fila: duas escritas nunca se
+   * atropelam e uma antiga nunca sobrescreve uma mais nova (Anotações, Ocorrências, parada).
+   */
+  private persist(session: ActiveSession): Promise<void> {
+    const run = session.persisting.then(() => writeMeeting(session.folder, session.meeting))
+    session.persisting = run.catch(() => undefined)
+    return run
+  }
+
+  /**
+   * Salva uma Anotação ao vivo no `meeting.json` (escrita atômica; sobrevive a um crash e a
+   * Recuperação a preserva). `offsetMs` é o Instante já calculado (recuo incluído). Vale
+   * gravando ou pausado; depois do pedido de parada a Anotação é recusada.
+   */
+  async addNote(text: string, offsetMs: number): Promise<Result<MeetingNote>> {
+    const session = this.session
+    const phase = this.state.phase
+    if (!session || session.stopping || (phase !== 'recording' && phase !== 'paused')) {
+      return fail('not-recording', 'Não há gravação em andamento para anotar.')
+    }
+    const clean = normalizeNoteText(text)
+    if (clean === '') return fail('invalid-request', 'A Anotação está vazia.')
+    if (!Number.isFinite(offsetMs)) return fail('invalid-request', 'Instante inválido.')
+
+    const note: MeetingNote = {
+      id: newMeetingId(),
+      offsetMs: Math.max(0, Math.round(offsetMs)),
+      text: clean,
+      createdAt: new Date(this.deps.now()).toISOString()
+    }
+    const before = session.meeting
+    session.meeting = { ...before, notes: insertNote(before.notes, note) }
+    try {
+      await this.persist(session)
+    } catch (error) {
+      this.log(`erro ao salvar a Anotação: ${messageOf(error)}`)
+      session.meeting = {
+        ...session.meeting,
+        notes: session.meeting.notes.filter((existing) => existing.id !== note.id)
+      }
+      return fail('unknown', 'Não foi possível salvar a Anotação no disco.')
+    }
+    this.log(`Anotação salva (Instante ${note.offsetMs} ms)`)
+    return { ok: true, value: note }
   }
 
   /**
@@ -513,6 +569,8 @@ export class RecordingService {
       }
     }
     session.releaseAwake?.()
+    // Anotações aceitas antes da parada terminam de ser gravadas antes do estado final.
+    await session.persisting
 
     let meeting: MeetingFile = {
       ...session.meeting,

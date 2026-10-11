@@ -89,6 +89,25 @@ describe('SettingsStore', () => {
   })
 })
 
+describe('SettingsStore: posição da barra', () => {
+  it('lembra a última posição e a relê em outra instância, sem mexer no resto', async () => {
+    const store = new SettingsStore(userData, documents)
+    await store.load()
+    await store.update({ quality: '720p' })
+    await store.setBarPosition({ x: 120.6, y: -40 })
+    expect(store.get().barPosition).toEqual({ x: 121, y: -40 })
+
+    const reopened = new SettingsStore(userData, documents)
+    expect(await reopened.load()).toMatchObject({
+      quality: '720p',
+      barPosition: { x: 121, y: -40 },
+      noteShortcut: 'Ctrl+Shift+Space',
+      noteLeadSeconds: 5
+    })
+    expect(await readdir(userData)).toEqual([SETTINGS_FILE])
+  })
+})
+
 describe('readVideoEncoderSync', () => {
   it('sem arquivo, inválido ou corrompido: software; com "hardware" no arquivo: hardware', async () => {
     expect(readVideoEncoderSync(userData)).toBe('software')

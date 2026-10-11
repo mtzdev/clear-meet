@@ -65,6 +65,32 @@ const withTools = () => ({
   run: createFakeMedia({ durationSec: 90 }).run
 })
 
+describe('recoverInterrupted: Anotações', () => {
+  it('a gravação interrompida é recuperada com as Anotações feitas ao vivo', async () => {
+    const folder = join(root, 'crash-com-notas')
+    await mkdir(folder)
+    const notes = [
+      { id: 'n1', offsetMs: 5000, text: 'Ponto 1', createdAt: '2026-10-10T17:01:00.000Z' },
+      {
+        id: 'n2',
+        offsetMs: 61_000,
+        text: 'Ponto 2\ncom linha',
+        createdAt: '2026-10-10T17:02:00.000Z'
+      }
+    ]
+    await writeMeeting(folder, meeting('recording', { notes }))
+    await writeFile(join(folder, MEETING_FILES.videoPart), 'v')
+    await writeFile(join(folder, MEETING_FILES.audioPart), 'a')
+
+    const items = await recoverInterrupted(withTools())
+
+    expect(items[0]?.outcome).toBe('recovered')
+    const read = await readMeeting(folder)
+    expect(read.ok && read.value.status).toBe('ready')
+    expect(read.ok && read.value.notes).toEqual(notes)
+  })
+})
+
 describe('recoverInterrupted', () => {
   it('recupera uma gravação interrompida a partir dos pedaços e marca como pronta', async () => {
     const folder = await folderWith('crash', 'recording', {

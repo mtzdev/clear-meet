@@ -24,6 +24,9 @@ const settingsView: SettingsView = {
   quality: '1080p',
   videoEncoder: 'software',
   micDeviceId: null,
+  noteShortcut: 'Ctrl+Shift+Space',
+  noteLeadSeconds: 5,
+  barPosition: null,
   resolvedMeetingsDir: 'C:\\Users\\x\\Documents\\ClearMeet'
 }
 
@@ -52,6 +55,15 @@ function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
     recovery: {
       getReport: () => ({ checkedAt: null, running: false, items: [] }),
       retry: () => Promise.resolve({ checkedAt: 1, running: false, items: [] })
+    },
+    floating: {
+      getInfo: () => ({ shortcut: 'Ctrl+Shift+Space', shortcutRegistered: true }),
+      resizeBar: () => undefined,
+      showMain: () => undefined,
+      openEditor: () => undefined,
+      beginNote: () => undefined,
+      saveNote: () => Promise.resolve(ok),
+      cancelNote: () => undefined
     },
     ...overrides
   }
@@ -149,8 +161,11 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
     expect(() => untyped.on('secret:event', () => undefined)).toThrow('Evento IPC desconhecido')
   })
 
-  it('o contrato de eventos tem os três eventos esperados', () => {
+  it('o contrato de eventos tem os eventos esperados', () => {
     expect(Object.keys(IPC_EVENTS).sort()).toEqual([
+      'floating:info',
+      'notes:opened',
+      'notes:saved',
       'recording:level',
       'recording:state',
       'recovery:report'

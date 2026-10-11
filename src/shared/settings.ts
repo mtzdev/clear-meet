@@ -1,4 +1,6 @@
 import { DEFAULT_QUALITY, isQualityPreset, type QualityPreset } from './capture'
+import type { Point } from './floating'
+import { DEFAULT_NOTE_LEAD_SECONDS, DEFAULT_NOTE_SHORTCUT, MAX_NOTE_LEAD_SECONDS } from './notes'
 
 /**
  * Configurações persistidas em `userData/settings.json`. A tela de Configurações
@@ -31,6 +33,15 @@ export interface AppSettings {
   videoEncoder: VideoEncoder
   /** Último microfone escolhido; `null` = padrão do sistema; `'none'` = gravar sem microfone. */
   micDeviceId: string | null
+  /**
+   * Atalho global que abre o campo de Anotação durante a gravação (formato de acelerador do
+   * Electron). Só vale ao iniciar a gravação; a tela de Configurações é da Fase 8.
+   */
+  noteShortcut: string
+  /** Quantos segundos o Instante de uma Anotação ao vivo recua em relação à primeira tecla. */
+  noteLeadSeconds: number
+  /** Última posição da barra flutuante (DIP); `null` = topo-centro do monitor principal. */
+  barPosition: Point | null
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -38,7 +49,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   compaction: true,
   quality: DEFAULT_QUALITY,
   videoEncoder: 'software',
-  micDeviceId: null
+  micDeviceId: null,
+  noteShortcut: DEFAULT_NOTE_SHORTCUT,
+  noteLeadSeconds: DEFAULT_NOTE_LEAD_SECONDS,
+  barPosition: null
 }
 
 export const SETTINGS_SCHEMA_VERSION = 1
@@ -53,6 +67,14 @@ export type SettingsPatch = Partial<Pick<AppSettings, 'quality' | 'micDeviceId'>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function parseBarPosition(value: unknown): Point | null {
+  if (!isRecord(value)) return null
+  const { x, y } = value
+  if (typeof x !== 'number' || typeof y !== 'number') return null
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+  return { x: Math.round(x), y: Math.round(y) }
 }
 
 /**
@@ -76,7 +98,19 @@ export function parseSettings(raw: unknown): AppSettings {
     videoEncoder: isVideoEncoder(raw.videoEncoder)
       ? raw.videoEncoder
       : DEFAULT_SETTINGS.videoEncoder,
-    micDeviceId
+    micDeviceId,
+    noteShortcut:
+      typeof raw.noteShortcut === 'string' && raw.noteShortcut.trim() !== ''
+        ? raw.noteShortcut.trim()
+        : DEFAULT_SETTINGS.noteShortcut,
+    noteLeadSeconds:
+      typeof raw.noteLeadSeconds === 'number' &&
+      Number.isFinite(raw.noteLeadSeconds) &&
+      raw.noteLeadSeconds >= 0 &&
+      raw.noteLeadSeconds <= MAX_NOTE_LEAD_SECONDS
+        ? raw.noteLeadSeconds
+        : DEFAULT_SETTINGS.noteLeadSeconds,
+    barPosition: parseBarPosition(raw.barPosition)
   }
 }
 

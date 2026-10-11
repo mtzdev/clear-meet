@@ -22,6 +22,14 @@ export const WARNING_TEXT: Record<RecordingWarning, { title: string; detail: str
   }
 }
 
+/** Versão curta dos avisos, para a barra flutuante (a janela principal fica oculta). */
+export const WARNING_SHORT: Record<RecordingWarning, string> = {
+  'window-minimized': 'Janela minimizada: o vídeo está congelado',
+  'low-disk': 'Pouco espaço livre no disco',
+  'video-encoder-stalled': 'O vídeo parou de ser gravado (o áudio continua)',
+  'mic-unavailable': 'Microfone indisponível: só o áudio do sistema'
+}
+
 export const STOP_REASON_TEXT: Partial<Record<StopReason, string>> = {
   'source-ended': 'A janela ou tela gravada foi fechada, então a gravação foi encerrada.',
   'low-disk': 'O espaço livre no disco acabou, então a gravação foi encerrada com segurança.',

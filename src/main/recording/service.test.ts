@@ -539,3 +539,108 @@ describe('RecordingService: pós-processamento que não pôde concluir', () => {
     expect(saved.ok && saved.value.status).toBe('unprocessed')
   })
 })
+
+describe('RecordingService: Anotações ao vivo', () => {
+  async function recording(h: Harness): Promise<string> {
+    await h.service.start(windowRequest)
+    const state = h.service.getState()
+    if (state.phase !== 'recording') throw new Error('deveria estar gravando')
+    return state.meeting.folder
+  }
+
+  it('grava a Anotação no meeting.json na hora (sobrevive a um crash) e mantém a ordem por Instante', async () => {
+    const h = createHarness()
+    const folder = await recording(h)
+
+    h.now.value = T0 + 90_000
+    const first = await h.service.addNote('  Prazo da entrega\r\nsexta  ', 80_000)
+    expect(first.ok && first.value).toMatchObject({
+      offsetMs: 80_000,
+      text: 'Prazo da entrega\nsexta',
+      createdAt: new Date(T0 + 90_000).toISOString()
+    })
+    const second = await h.service.addNote('Antes', 12_345.6)
+    expect(second.ok && second.value.offsetMs).toBe(12_346)
+
+    // Sem parar a gravação (como num crash): já está em disco, com o status "recording".
+    const saved = await readMeeting(folder)
+    expect(saved.ok && saved.value.status).toBe('recording')
+    expect(saved.ok && saved.value.notes.map((note) => note.text)).toEqual([
+      'Antes',
+      'Prazo da entrega\nsexta'
+    ])
+    const ids = saved.ok ? saved.value.notes.map((note) => note.id) : []
+    expect(new Set(ids).size).toBe(2)
+  })
+
+  it('as Anotações continuam no meeting.json depois de parar e finalizar', async () => {
+    const h = createHarness()
+    const folder = await recording(h)
+    await h.service.addNote('uma', 1000)
+    await h.service.addNote('duas', 2000)
+
+    const stopped = await h.service.stop()
+    expect(stopped.ok).toBe(true)
+    const final = await readMeeting(folder)
+    expect(final.ok && final.value.status).toBe('ready')
+    expect(final.ok && final.value.notes.map((note) => note.text)).toEqual(['uma', 'duas'])
+  })
+
+  it('funciona pausado; texto vazio e Instante inválido são recusados', async () => {
+    const h = createHarness()
+    await recording(h)
+    await h.service.pause()
+    expect((await h.service.addNote('na pausa', 5000)).ok).toBe(true)
+
+    expect(await h.service.addNote('   ', 0)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid-request' }
+    })
+    expect(await h.service.addNote('x', Number.NaN)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid-request' }
+    })
+    expect(await h.service.addNote('x', -10)).toMatchObject({ ok: true, value: { offsetMs: 0 } })
+  })
+
+  it('sem gravação ou depois do pedido de parada, recusa', async () => {
+    const h = createHarness()
+    expect(await h.service.addNote('x', 0)).toMatchObject({
+      ok: false,
+      error: { code: 'not-recording' }
+    })
+    await recording(h)
+    const stopping = h.service.stop()
+    expect(await h.service.addNote('tarde', 0)).toMatchObject({
+      ok: false,
+      error: { code: 'not-recording' }
+    })
+    await stopping
+    expect(await h.service.addNote('depois', 0)).toMatchObject({
+      ok: false,
+      error: { code: 'not-recording' }
+    })
+  })
+
+  it('uma Anotação em andamento na hora de parar não é perdida nem sobrescrita pelo estado final', async () => {
+    const h = createHarness()
+    const folder = await recording(h)
+    const pending = h.service.addNote('quase', 3000)
+    const stopped = await h.service.stop()
+    expect((await pending).ok).toBe(true)
+    expect(stopped.ok).toBe(true)
+    const final = await readMeeting(folder)
+    expect(final.ok && final.value.status).toBe('ready')
+    expect(final.ok && final.value.notes.map((note) => note.text)).toEqual(['quase'])
+  })
+
+  it('a Ocorrência do vídeo e as Anotações convivem no mesmo arquivo', async () => {
+    const h = createHarness()
+    const folder = await recording(h)
+    h.sink().event({ type: 'video-stalled', stalled: true })
+    await h.service.addNote('nota', 1000)
+    const saved = await readMeeting(folder)
+    expect(saved.ok && saved.value.issues).toHaveLength(1)
+    expect(saved.ok && saved.value.notes).toHaveLength(1)
+  })
+})

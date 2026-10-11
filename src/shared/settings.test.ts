@@ -29,15 +29,40 @@ describe('parseSettings', () => {
         compaction: false,
         quality: '720p',
         videoEncoder: 'hardware',
-        micDeviceId: 'abc'
+        micDeviceId: 'abc',
+        noteShortcut: 'Ctrl+Alt+N',
+        noteLeadSeconds: 8,
+        barPosition: { x: 120.4, y: -30 }
       })
     ).toEqual({
       meetingsDir: 'D:\\Reunioes',
       compaction: false,
       quality: '720p',
       videoEncoder: 'hardware',
-      micDeviceId: 'abc'
+      micDeviceId: 'abc',
+      noteShortcut: 'Ctrl+Alt+N',
+      noteLeadSeconds: 8,
+      barPosition: { x: 120, y: -30 }
     })
+  })
+
+  it('Anotações: atalho padrão Ctrl+Shift+Space, recuo de 5 s e barra no topo-centro', () => {
+    expect(DEFAULT_SETTINGS.noteShortcut).toBe('Ctrl+Shift+Space')
+    expect(DEFAULT_SETTINGS.noteLeadSeconds).toBe(5)
+    expect(DEFAULT_SETTINGS.barPosition).toBeNull()
+  })
+
+  it('valores inválidos de Anotação e de posição da barra voltam ao padrão', () => {
+    for (const noteLeadSeconds of [-1, 301, Number.NaN, '5', null]) {
+      expect(parseSettings({ noteLeadSeconds }).noteLeadSeconds).toBe(5)
+    }
+    expect(parseSettings({ noteLeadSeconds: 0 }).noteLeadSeconds).toBe(0)
+    for (const noteShortcut of ['', '   ', 42, null]) {
+      expect(parseSettings({ noteShortcut }).noteShortcut).toBe('Ctrl+Shift+Space')
+    }
+    for (const barPosition of [{ x: 1 }, { x: '1', y: 2 }, [1, 2], 'a', { x: Infinity, y: 0 }]) {
+      expect(parseSettings({ barPosition }).barPosition).toBeNull()
+    }
   })
 
   it('um campo inválido volta ao padrão sem perder os outros', () => {

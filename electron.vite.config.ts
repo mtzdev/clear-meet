@@ -32,10 +32,11 @@ export default defineConfig({
     build: {
       minify: 'esbuild',
       rollupOptions: {
-        // Duas páginas: a UI e a janela de gravação (oculta).
+        // Três páginas: a UI, a janela de gravação (oculta) e as janelas flutuantes (barra e Anotação).
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
-          recorder: resolve(__dirname, 'src/renderer/recorder.html')
+          recorder: resolve(__dirname, 'src/renderer/recorder.html'),
+          floating: resolve(__dirname, 'src/renderer/floating.html')
         }
       }
     },

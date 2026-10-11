@@ -1,7 +1,8 @@
-import type { ReactElement } from 'react'
+import { useEffect, type ReactElement } from 'react'
 import { Sidebar } from '@/components/layout/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { useRoute, type Route } from '@/lib/router'
+import { useRecordingState } from '@/lib/recording'
+import { navigate, useRoute, type Route } from '@/lib/router'
 import { MeetingScreen } from '@/screens/meeting'
 import { MeetingsScreen } from '@/screens/meetings'
 import { RecordScreen } from '@/screens/record'
@@ -16,6 +17,12 @@ const SCREENS: Record<Route, () => ReactElement> = {
 
 export function App() {
   const route = useRoute()
+  const recording = useRecordingState().phase
+  // A janela principal fica oculta enquanto a barra flutuante grava; ao parar, volta na tela
+  // de Gravar (finalização e resultado), mesmo que estivesse em outra área.
+  useEffect(() => {
+    if (recording === 'finalizing') navigate('record')
+  }, [recording])
   const Screen = SCREENS[route]
 
   return (

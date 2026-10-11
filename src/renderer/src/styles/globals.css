@@ -63,3 +63,19 @@
     user-select: none;
   }
 }
+
+/*
+ * Janelas flutuantes (barra e campo de Anotação): o fundo da janela é transparente e a
+ * página desenha o próprio cartão arredondado. Fora de @layer para vencer o fundo da base.
+ */
+body.floating {
+  background: transparent;
+}
+
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}

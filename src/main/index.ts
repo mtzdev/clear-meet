@@ -3,6 +3,7 @@ import {
   app,
   BrowserWindow,
   ipcMain,
+  globalShortcut,
   Menu,
   nativeTheme,
   powerSaveBlocker,
@@ -10,12 +11,15 @@ import {
   shell
 } from 'electron'
 import type { IpcEventName, IpcEventPayload } from '@shared/ipc'
-import { assessDisk, type PreflightInfo } from '@shared/recording'
+import { assessDisk, type PreflightInfo, type RecordingState } from '@shared/recording'
 import { getFfmpegStatus, type StatusOptions } from './ffmpeg'
 import { resolveFfmpegTools } from './ffmpeg/media'
 import { freeDiskBytes } from './fs/atomic'
 import { CaptureSources } from './capture/sources'
 import { loadWindowStateProbe } from './capture/window-state'
+import { FloatingController } from './floating/controller'
+import { loadForegroundTools } from './floating/foreground'
+import { createBarWindow, createNoteWindow, readDisplays } from './floating/windows'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
 import { isDirectChild, renameMeeting } from './meetings/repository'
@@ -69,15 +73,28 @@ if (!app.requestSingleInstanceLock()) {
   }
 
   const sendToRenderer = <E extends IpcEventName>(event: E, payload: IpcEventPayload<E>): void => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(event, payload)
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    // Oculta durante a gravação: os níveis (10x/s) só interessam à barra.
+    if (event === 'recording:level' && !mainWindow.isVisible()) return
+    mainWindow.webContents.send(event, payload)
   }
 
   let recording: RecordingService | null = null
+  let floating: FloatingController | null = null
+
+  /** Traz a janela principal para a frente (ela fica oculta enquanto a barra flutuante grava). */
+  const showMainWindow = (): void => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      openMainWindow()
+      return
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
 
   app.on('second-instance', () => {
-    if (!mainWindow) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
+    if (mainWindow) showMainWindow()
   })
 
   void app.whenReady().then(async () => {
@@ -117,13 +134,27 @@ if (!app.requestSingleInstanceLock()) {
           recorderFactory.isRecorder(contents))
     )
 
+    // Eventos da gravação: janela principal e barra flutuante recebem o mesmo estado e os mesmos
+    // níveis; o controlador da barra a liga e desliga conforme a fase da gravação.
+    const dispatchEvent = <E extends IpcEventName>(event: E, payload: IpcEventPayload<E>): void => {
+      sendToRenderer(event, payload)
+      floating?.forwardToBar(event, payload)
+      if (event === 'recording:state') floating?.onRecordingState(payload as RecordingState)
+    }
+
     const windowState = await loadWindowStateProbe(log)
+    const foreground = await loadForegroundTools(log)
+    const windowContext = {
+      devUrl: devUrl ?? null,
+      dirname: __dirname,
+      log
+    }
     const service = new RecordingService({
       config: () => ({ settings: settings.get(), meetingsDir: meetingsDir() }),
       getTools,
       createRecorder: (sink) => recorderFactory.create(sink),
       selectSource: (source) => captureSources.select(source),
-      emit: sendToRenderer,
+      emit: dispatchEvent,
       freeBytes: freeDiskBytes,
       windowState,
       keepAwake: () => {
@@ -136,6 +167,39 @@ if (!app.requestSingleInstanceLock()) {
       log
     })
     recording = service
+
+    floating = new FloatingController({
+      recording: service,
+      settings: () => settings.get(),
+      saveBarPosition: (position) => {
+        void settings.setBarPosition(position).catch(() => undefined)
+      },
+      displays: readDisplays,
+      createBar: (position, onMoved) => createBarWindow(windowContext, position, onMoved),
+      createNote: () => createNoteWindow(windowContext),
+      shortcuts: {
+        register: (accelerator, callback) =>
+          globalShortcut.register(accelerator, callback) &&
+          globalShortcut.isRegistered(accelerator),
+        unregister: (accelerator) => globalShortcut.unregister(accelerator)
+      },
+      foreground: {
+        capture: () => foreground.capture(),
+        restore: (token) => {
+          if (typeof token === 'number') foreground.restore(token)
+        }
+      },
+      mainWindow: {
+        hide: () => mainWindow?.hide(),
+        // Ao fechar o app no meio da gravação, a janela principal não reaparece durante a finalização.
+        show: () => {
+          if (!quitRequested) showMainWindow()
+        }
+      },
+      now: () => Date.now(),
+      log
+    })
+    const floatingControls = floating
 
     const recovery = new RecoveryService({
       meetingsDir,
@@ -185,9 +249,20 @@ if (!app.requestSingleInstanceLock()) {
           view: () => settings.view(),
           update: (patch) => settings.update(patch)
         },
-        recovery: { getReport: () => recovery.getReport(), retry: () => recovery.run() }
+        recovery: { getReport: () => recovery.getReport(), retry: () => recovery.run() },
+        floating: {
+          getInfo: () => floatingControls.getInfo(),
+          resizeBar: (height) => floatingControls.resizeBar(height),
+          showMain: () => floatingControls.showMain(),
+          openEditor: () => floatingControls.openEditor(),
+          beginNote: () => floatingControls.beginNote(),
+          saveNote: (text) => floatingControls.saveNote(text),
+          cancelNote: () => floatingControls.cancelNote()
+        }
       })
     )
+
+    app.on('will-quit', () => globalShortcut.unregisterAll())
 
     // Fechar o app com a gravação em andamento: para, finaliza e só então sai.
     app.on('before-quit', (event) => {

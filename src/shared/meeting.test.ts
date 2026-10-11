@@ -47,6 +47,27 @@ describe('meeting.json: ida e volta', () => {
     expect(parsed).toEqual({ ok: true, value: original })
   })
 
+  it('Anotações: várias, com texto de várias linhas e acentos, voltam idênticas (schema 1 mantido)', () => {
+    const original = meeting({
+      status: 'recording',
+      endedAt: null,
+      durationMs: null,
+      notes: [
+        { id: 'a', offsetMs: 0, text: 'Início', createdAt: '2026-10-10T17:31:00.000Z' },
+        {
+          id: 'b',
+          offsetMs: 83_250,
+          text: 'Decisão: migrar para a nova API\n- responsável: Ana',
+          createdAt: '2026-10-10T17:32:30.000Z'
+        }
+      ]
+    })
+    const text = serializeMeeting(original)
+    expect(JSON.parse(text)).toMatchObject({ schemaVersion: MEETING_SCHEMA_VERSION })
+    expect(MEETING_SCHEMA_VERSION).toBe(1)
+    expect(parseMeetingText(text)).toEqual({ ok: true, value: original })
+  })
+
   it('aceita uma Reunião só de áudio, ainda gravando', () => {
     const recording = meeting({
       status: 'recording',

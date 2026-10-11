@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # O app é só Windows (caminhos, user32 via koffi): testar no mesmo SO.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      # Typecheck, lint, testes e build não abrem o Electron: não precisa baixar o binário.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # FFmpeg fixado (versão + SHA-256 em config.ts) para o teste de integração da finalização.
+      - name: Cache do FFmpeg
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: vendor/ffmpeg
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('src/main/ffmpeg/config.ts') }}
+
+      - if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: npm run fetch:ffmpeg
+
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm test
+      # Inclui o typecheck.
+      - run: npm run build
