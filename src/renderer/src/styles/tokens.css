@@ -1,0 +1,78 @@
+/*
+ * Tokens de cor do app — fonte única. Tudo (Tailwind, shadcn/ui, componentes)
+ * lê estas variáveis; nenhum componente usa cor literal.
+ * Tema claro em :root; escuro em .dark (aplicado em <html> por lib/theme.ts,
+ * seguindo o tema do Windows). `--background` precisa bater com
+ * src/shared/theme.ts (há um teste que confere).
+ */
+:root {
+  --background: #fafafb;
+  --foreground: #16171d;
+
+  --card: #ffffff;
+  --card-foreground: #16171d;
+  --popover: #ffffff;
+  --popover-foreground: #16171d;
+
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+  --secondary: #f0f1f4;
+  --secondary-foreground: #23252e;
+
+  --muted: #f0f1f4;
+  --muted-foreground: #626574;
+  --accent: #eceefe;
+  --accent-foreground: #3730a3;
+
+  --border: #e3e4ea;
+  --input: #d6d8e0;
+  --ring: #6366f1;
+
+  --destructive: #dc2626;
+  --success: #15803d;
+  --warning: #b45309;
+  --record: #e11d48;
+
+  --sidebar: #f3f4f7;
+  --sidebar-foreground: #4b4e5c;
+  --sidebar-accent: #e4e6fb;
+  --sidebar-accent-foreground: #3730a3;
+  --sidebar-border: #e3e4ea;
+
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: #0e0f13;
+  --foreground: #ececf1;
+
+  --card: #14151b;
+  --card-foreground: #ececf1;
+  --popover: #1a1b22;
+  --popover-foreground: #ececf1;
+
+  --primary: #818cf8;
+  --primary-foreground: #0f1030;
+  --secondary: #1c1d25;
+  --secondary-foreground: #dcdde6;
+
+  --muted: #1c1d25;
+  --muted-foreground: #9b9dab;
+  --accent: #1f2144;
+  --accent-foreground: #c7d2fe;
+
+  --border: #262831;
+  --input: #32343f;
+  --ring: #818cf8;
+
+  --destructive: #f87171;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --record: #fb7185;
+
+  --sidebar: #0a0b0e;
+  --sidebar-foreground: #a3a5b3;
+  --sidebar-accent: #1b1d3c;
+  --sidebar-accent-foreground: #c7d2fe;
+  --sidebar-border: #1c1d24;
+}

@@ -1,0 +1,147 @@
+import { describe, expect, it } from 'vitest'
+import {
+  MEETING_SCHEMA_VERSION,
+  needsRecovery,
+  parseMeeting,
+  parseMeetingText,
+  serializeMeeting,
+  type MeetingFile
+} from './meeting'
+
+function meeting(overrides: Partial<MeetingFile> = {}): MeetingFile {
+  return {
+    schemaVersion: MEETING_SCHEMA_VERSION,
+    id: '6f1c2c8e-2a49-4b79-8f0e-3e6f0f7e1a11',
+    name: 'Revisão do trimestre',
+    createdAt: '2026-10-10T17:30:00.000Z',
+    endedAt: '2026-10-10T18:15:00.000Z',
+    durationMs: 2_700_000,
+    status: 'ready',
+    source: { kind: 'window', name: 'Reunião - Meet' },
+    quality: '1080p',
+    video: { file: 'video.mp4', width: 1920, height: 1080, fps: 15 },
+    audio: { file: 'audio.opus' },
+    inputs: { mic: true, systemAudio: true },
+    notes: [],
+    issues: [],
+    ...overrides
+  }
+}
+
+describe('meeting.json: ida e volta', () => {
+  it('serializa e lê de volta o mesmo conteúdo', () => {
+    const original = meeting({
+      notes: [
+        {
+          id: 'n1',
+          offsetMs: 12_000,
+          text: 'Perguntar sobre o prazo',
+          createdAt: '2026-10-10T17:31:00.000Z'
+        }
+      ]
+    })
+    const text = serializeMeeting(original)
+    expect(text.endsWith('\n')).toBe(true)
+    expect(JSON.parse(text)).toMatchObject({ schemaVersion: 1, name: 'Revisão do trimestre' })
+    const parsed = parseMeetingText(text)
+    expect(parsed).toEqual({ ok: true, value: original })
+  })
+
+  it('aceita uma Reunião só de áudio, ainda gravando', () => {
+    const recording = meeting({
+      status: 'recording',
+      endedAt: null,
+      durationMs: null,
+      source: { kind: 'none', name: null },
+      video: null
+    })
+    expect(parseMeeting(JSON.parse(serializeMeeting(recording)))).toEqual({
+      ok: true,
+      value: recording
+    })
+  })
+
+  it('preserva os campos reservados da Fase 5 sem interpretá-los', () => {
+    const withFuture = meeting({
+      transcript: { utterances: [{ speaker: 'Ana', offsetMs: 0, text: 'Olá' }] },
+      summary: 'resumo',
+      chat: []
+    })
+    const result = parseMeeting(JSON.parse(serializeMeeting(withFuture)))
+    expect(result).toEqual({ ok: true, value: withFuture })
+  })
+
+  it('issues: ausente vale lista vazia (arquivos antigos); ocorrências são preservadas', () => {
+    const raw = JSON.parse(serializeMeeting(meeting())) as Record<string, unknown>
+    delete raw.issues
+    const parsed = parseMeeting(raw)
+    expect(parsed.ok && parsed.value.issues).toEqual([])
+
+    const withIssue = meeting({ issues: [{ code: 'video-encoder-stalled', atMs: 15_000 }] })
+    expect(parseMeeting(JSON.parse(serializeMeeting(withIssue)))).toEqual({
+      ok: true,
+      value: withIssue
+    })
+  })
+
+  it('aceita BOM no início do arquivo (editores do Windows)', () => {
+    const text = String.fromCharCode(0xfeff) + serializeMeeting(meeting())
+    expect(parseMeetingText(text).ok).toBe(true)
+  })
+})
+
+describe('meeting.json: validação', () => {
+  const invalid = (patch: Record<string, unknown>) =>
+    parseMeeting({ ...(JSON.parse(serializeMeeting(meeting())) as object), ...patch })
+
+  it('rejeita o que não é objeto ou não é JSON', () => {
+    expect(parseMeeting(null).ok).toBe(false)
+    expect(parseMeeting([]).ok).toBe(false)
+    expect(parseMeeting('texto').ok).toBe(false)
+    expect(parseMeetingText('{ quebrado')).toEqual({
+      ok: false,
+      error: 'meeting.json não é um JSON válido'
+    })
+  })
+
+  it('exige a versão do esquema suportada', () => {
+    const newer = invalid({ schemaVersion: 2 })
+    expect(newer.ok).toBe(false)
+    expect(!newer.ok && newer.error).toContain('schemaVersion 2')
+    const missing = invalid({ schemaVersion: undefined })
+    expect(!missing.ok && missing.error).toContain('ausente')
+  })
+
+  it.each([
+    ['id vazio', { id: '' }],
+    ['name não é texto', { name: 5 }],
+    ['createdAt inválido', { createdAt: 'ontem' }],
+    ['endedAt inválido', { endedAt: 'x' }],
+    ['durationMs negativo', { durationMs: -1 }],
+    ['status desconhecido', { status: 'quase' }],
+    ['source sem tipo válido', { source: { kind: 'camera', name: null } }],
+    ['quality inválido', { quality: '4k' }],
+    ['video incompleto', { video: { file: 'video.mp4' } }],
+    ['video fora da pasta', { video: { file: '..\\x.mp4', width: 1, height: 1, fps: 15 } }],
+    ['audio fora da pasta', { audio: { file: 'sub/audio.opus' } }],
+    ['inputs inválido', { inputs: { mic: 'sim', systemAudio: true } }],
+    ['notes não é lista', { notes: {} }],
+    ['issues com código desconhecido', { issues: [{ code: 'x', atMs: 1 }] }],
+    ['issues não é lista', { issues: 5 }],
+    [
+      'Anotação com Instante negativo',
+      { notes: [{ id: 'a', offsetMs: -5, text: 'x', createdAt: '2026-10-10T17:31:00.000Z' }] }
+    ]
+  ])('rejeita: %s', (_name, patch) => {
+    expect(invalid(patch).ok).toBe(false)
+  })
+})
+
+describe('needsRecovery', () => {
+  it('só uma Reunião pronta dispensa a recuperação', () => {
+    expect(needsRecovery('ready')).toBe(false)
+    expect(needsRecovery('recording')).toBe(true)
+    expect(needsRecovery('processing')).toBe(true)
+    expect(needsRecovery('unprocessed')).toBe(true)
+  })
+})

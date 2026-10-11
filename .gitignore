@@ -1,0 +1,46 @@
+# Dependências e saídas de build
+node_modules/
+out/
+dist/
+build/
+release/
+coverage/
+*.tsbuildinfo
+.eslintcache
+.vite/
+
+# FFmpeg baixado por `npm run fetch:ffmpeg`
+vendor/
+
+# Documentação interna de planejamento (fica só local)
+*.md
+!/README.md
+docs/
+
+# Protótipo descartável da Fase 0
+spike/
+
+# Mídia de teste / gravações
+*.mp4
+*.webm
+*.mkv
+*.opus
+*.m4a
+*.wav
+*.part.*
+
+# Ambiente e logs
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+
+# Sistema / editor / ferramentas locais
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.claude/
