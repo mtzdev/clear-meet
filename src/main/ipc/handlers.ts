@@ -1,6 +1,8 @@
 import type { FfmpegStatus } from '@shared/ffmpeg'
 import type { FloatingInfo } from '@shared/floating'
 import type { IpcHandlers } from '@shared/ipc'
+import type { MeetingDetail, MeetingList } from '@shared/library'
+import type { MeetingNote } from '@shared/meeting'
 import type {
   CaptureSourceInfo,
   FinishedRecording,
@@ -29,6 +31,13 @@ export interface HandlerDeps {
   }
   renameMeeting(folder: string, name: string): Promise<Result<RenamedMeeting>>
   revealMeeting(folder: string): Promise<void>
+  meetings: {
+    list(): Promise<MeetingList>
+    get(id: string): Promise<Result<MeetingDetail>>
+    addNote(folder: string, offsetMs: number, text: string): Promise<Result<MeetingNote>>
+    updateNote(folder: string, noteId: string, text: string): Promise<Result<MeetingNote>>
+    deleteNote(folder: string, noteId: string): Promise<Result<null>>
+  }
   settings: {
     view(): SettingsView
     update(patch: SettingsPatch): Promise<SettingsView>
@@ -69,6 +78,13 @@ export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
       await deps.revealMeeting(request.folder)
       return null
     },
+    'meetings:list': () => deps.meetings.list(),
+    'meeting:get': (request) => deps.meetings.get(request.id),
+    'meeting:addNote': (request) =>
+      deps.meetings.addNote(request.folder, request.offsetMs, request.text),
+    'meeting:updateNote': (request) =>
+      deps.meetings.updateNote(request.folder, request.noteId, request.text),
+    'meeting:deleteNote': (request) => deps.meetings.deleteNote(request.folder, request.noteId),
     'settings:get': () => deps.settings.view(),
     'settings:update': (patch) => deps.settings.update(patch),
     'recovery:getReport': () => deps.recovery.getReport(),

@@ -1,0 +1,53 @@
+import { describe, expect, it } from 'vitest'
+import { isInsideOverlay, isTextEntry, playerKeyAction } from './player-keys'
+
+const FREE = { inTextField: false, inOverlay: false, modified: false }
+
+describe('playerKeyAction', () => {
+  it('espaço alterna, setas saltam', () => {
+    expect(playerKeyAction(' ', FREE)).toBe('toggle')
+    expect(playerKeyAction('ArrowLeft', FREE)).toBe('back')
+    expect(playerKeyAction('ArrowRight', FREE)).toBe('forward')
+  })
+
+  it('ignora outras teclas', () => {
+    expect(playerKeyAction('a', FREE)).toBeNull()
+    expect(playerKeyAction('Enter', FREE)).toBeNull()
+    expect(playerKeyAction('ArrowUp', FREE)).toBeNull()
+  })
+
+  it('não age em campo de texto, em diálogo/menu aberto nem com Ctrl/Alt/Meta', () => {
+    expect(playerKeyAction(' ', { ...FREE, inTextField: true })).toBeNull()
+    expect(playerKeyAction('ArrowLeft', { ...FREE, inTextField: true })).toBeNull()
+    expect(playerKeyAction(' ', { ...FREE, inOverlay: true })).toBeNull()
+    expect(playerKeyAction('ArrowRight', { ...FREE, modified: true })).toBeNull()
+  })
+})
+
+describe('isTextEntry', () => {
+  it('reconhece onde se digita', () => {
+    expect(isTextEntry({ tagName: 'TEXTAREA' })).toBe(true)
+    expect(isTextEntry({ tagName: 'INPUT', type: 'text' })).toBe(true)
+    expect(isTextEntry({ tagName: 'INPUT' })).toBe(true)
+    expect(isTextEntry({ tagName: 'INPUT', type: 'search' })).toBe(true)
+    expect(isTextEntry({ tagName: 'SELECT' })).toBe(true)
+    expect(isTextEntry({ tagName: 'DIV', isContentEditable: true })).toBe(true)
+  })
+
+  it('botões, caixas de seleção e o resto não são campos de texto', () => {
+    expect(isTextEntry({ tagName: 'BUTTON' })).toBe(false)
+    expect(isTextEntry({ tagName: 'INPUT', type: 'checkbox' })).toBe(false)
+    expect(isTextEntry({ tagName: 'INPUT', type: 'range' })).toBe(false)
+    expect(isTextEntry({ tagName: 'DIV' })).toBe(false)
+    expect(isTextEntry(null)).toBe(false)
+  })
+})
+
+describe('isInsideOverlay', () => {
+  it('usa closest para achar diálogos e menus', () => {
+    expect(isInsideOverlay({ closest: () => ({}) })).toBe(true)
+    expect(isInsideOverlay({ closest: () => null })).toBe(false)
+    expect(isInsideOverlay({})).toBe(false)
+    expect(isInsideOverlay(null)).toBe(false)
+  })
+})

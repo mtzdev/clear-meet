@@ -1,4 +1,4 @@
-import { CircleCheck, FolderOpen, TriangleAlert } from 'lucide-react'
+import { CircleCheck, FolderOpen, NotebookText, TriangleAlert } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { WarningNotice } from '@/components/record/notices'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatDuration } from '@/lib/format'
 import { STOP_REASON_TEXT } from '@/lib/record-text'
+import { openMeeting } from '@/lib/router'
 import type { FinishedRecording } from '@shared/recording'
 
 /** Depois de parar: nome sugerido (editável), pasta da Reunião e como seguir. */
@@ -16,7 +17,8 @@ export function FinishedPanel({ finished }: { finished: FinishedRecording }) {
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
 
-  const done = async (event?: FormEvent) => {
+  /** Salva o nome (se mudou) e libera o painel; com `open`, segue para a tela da Reunião. */
+  const done = async (event?: FormEvent, open = false) => {
     event?.preventDefault()
     setSaving(true)
     setError(null)
@@ -34,12 +36,13 @@ export function FinishedPanel({ finished }: { finished: FinishedRecording }) {
         if (!renamed.value.folderRenamed) {
           // O nome ficou salvo, mas a pasta está em uso e manteve o nome antigo.
           setNote(
-            'O nome foi salvo, mas a pasta ainda tem o nome antigo porque algum programa a está usando. Clique em Concluir para seguir.'
+            'O nome foi salvo, mas a pasta ainda tem o nome antigo porque algum programa a está usando. Clique em Concluir ou em Abrir Reunião para seguir.'
           )
           return
         }
       }
       await window.api.invoke('recording:acknowledge')
+      if (open) openMeeting(finished.meetingId)
     } finally {
       setSaving(false)
     }
@@ -100,9 +103,19 @@ export function FinishedPanel({ finished }: { finished: FinishedRecording }) {
           <FolderOpen aria-hidden />
           Abrir pasta
         </Button>
-        <Button type="submit" disabled={saving || name.trim() === ''}>
-          Concluir
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button type="submit" variant="outline" disabled={saving || name.trim() === ''}>
+            Concluir
+          </Button>
+          <Button
+            type="button"
+            disabled={saving || name.trim() === ''}
+            onClick={() => void done(undefined, true)}
+          >
+            <NotebookText aria-hidden />
+            Abrir Reunião
+          </Button>
+        </div>
       </div>
     </form>
   )

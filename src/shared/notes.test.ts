@@ -6,7 +6,9 @@ import {
   insertNote,
   MAX_NOTE_LENGTH,
   noteOffsetMs,
-  normalizeNoteText
+  normalizeNoteText,
+  removeNote,
+  replaceNoteText
 } from './notes'
 
 const T0 = 1_000_000
@@ -81,5 +83,28 @@ describe('insertNote', () => {
     const original = [note('a', 1)]
     insertNote(original, note('b', 0))
     expect(original).toHaveLength(1)
+  })
+})
+
+describe('replaceNoteText / removeNote', () => {
+  const notes: MeetingNote[] = [
+    { id: 'a', offsetMs: 1000, text: 'um', createdAt: '2026-10-10T10:00:00.000Z' },
+    { id: 'b', offsetMs: 2000, text: 'dois', createdAt: '2026-10-10T10:00:01.000Z' }
+  ]
+
+  it('troca só o texto da Anotação, sem mexer no Instante nem na lista original', () => {
+    const result = replaceNoteText(notes, 'b', 'novo')
+    expect(result).toEqual([notes[0], { ...notes[1], text: 'novo' }])
+    expect(notes[1]?.text).toBe('dois')
+  })
+
+  it('remove a Anotação pedida', () => {
+    expect(removeNote(notes, 'a')).toEqual([notes[1]])
+    expect(notes).toHaveLength(2)
+  })
+
+  it('devolve null quando a Anotação não existe', () => {
+    expect(replaceNoteText(notes, 'x', 'z')).toBeNull()
+    expect(removeNote(notes, 'x')).toBeNull()
   })
 })

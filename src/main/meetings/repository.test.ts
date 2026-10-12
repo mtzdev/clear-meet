@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MEETING_FILE, MEETING_SCHEMA_VERSION, type MeetingFile } from '@shared/meeting'
 import {
@@ -8,6 +8,7 @@ import {
   listMeetingFolders,
   readMeeting,
   renameMeeting,
+  withFolderLock,
   writeMeeting
 } from './repository'
 
@@ -131,5 +132,91 @@ describe('renameMeeting', () => {
     const noJson = await renameMeeting(root, join(root, 'sem-json'), 'x')
     expect(noJson.ok).toBe(false)
     expect(await readFile(join(folder, MEETING_FILE), 'utf8')).toContain('Nome antigo')
+  })
+})
+
+describe('renameMeeting: casos de borda', () => {
+  it('pasta em uso (rename falha): o nome fica salvo e a pasta mantém o nome antigo', async () => {
+    const folder = await createMeeting('2026-10-10 1430 - Nome antigo')
+    const busy = (): Promise<void> =>
+      Promise.reject(Object.assign(new Error('em uso'), { code: 'EBUSY' }))
+    const result = await renameMeeting(root, folder, 'Nome novo', busy)
+    expect(result).toEqual({
+      ok: true,
+      value: { folder, name: 'Nome novo', folderRenamed: false }
+    })
+    const saved = await readMeeting(folder)
+    expect(saved.ok && saved.value.name).toBe('Nome novo')
+    expect(await listMeetingFolders(root)).toEqual([folder])
+  })
+
+  it('sanitiza caracteres inválidos do Windows, nomes reservados e tamanho', async () => {
+    const folder = await createMeeting('2026-10-10 1430 - Nome antigo')
+    const weird = await renameMeeting(root, folder, String.raw`a<b>c:d"e/f\g|h?i*j. `)
+    expect(weird.ok && basename(weird.value.folder)).toBe('2026-10-10 1430 - a b c d e f g h i j')
+    expect(weird.ok && weird.value.name).toBe(String.raw`a<b>c:d"e/f\g|h?i*j.`)
+
+    const reserved = await renameMeeting(root, weird.ok ? weird.value.folder : folder, 'CON')
+    expect(reserved.ok && basename(reserved.value.folder)).toBe('2026-10-10 1430 - CON_')
+
+    const long = await renameMeeting(
+      root,
+      reserved.ok ? reserved.value.folder : folder,
+      'x'.repeat(300)
+    )
+    expect(long.ok && basename(long.value.folder)).toBe(`2026-10-10 1430 - ${'x'.repeat(80)}`)
+  })
+
+  it('nome só com símbolos inválidos cai no nome padrão da pasta, mas o nome é preservado', async () => {
+    const folder = await createMeeting('2026-10-10 1430 - Nome antigo')
+    const result = await renameMeeting(root, folder, '???')
+    expect(result.ok && basename(result.value.folder)).toBe('2026-10-10 1430 - Reunião')
+    expect(result.ok && result.value.name).toBe('???')
+  })
+
+  it('a data no nome da pasta é a de início, não a de hoje', async () => {
+    const folder = await createMeeting('2026-10-10 1430 - Nome antigo', {
+      createdAt: new Date(2025, 0, 5, 9, 7).toISOString()
+    })
+    const result = await renameMeeting(root, folder, 'Outro')
+    expect(result.ok && basename(result.value.folder)).toBe('2025-01-05 0907 - Outro')
+  })
+
+  it('três renomeações para o mesmo nome geram sufixos (2), (3)...', async () => {
+    const a = await createMeeting('a', { id: 'a' })
+    const b = await createMeeting('b', { id: 'b' })
+    const c = await createMeeting('c', { id: 'c' })
+    const names: string[] = []
+    for (const folder of [a, b, c]) {
+      const result = await renameMeeting(root, folder, 'Mesmo')
+      if (result.ok) names.push(basename(result.value.folder))
+    }
+    expect(names).toEqual([
+      '2026-10-10 1430 - Mesmo',
+      '2026-10-10 1430 - Mesmo (2)',
+      '2026-10-10 1430 - Mesmo (3)'
+    ])
+  })
+})
+
+describe('withFolderLock', () => {
+  it('executa as tarefas da mesma pasta em fila, mesmo se uma falhar', async () => {
+    const order: string[] = []
+    const slow = withFolderLock('x', async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      order.push('lenta')
+    })
+    const failing = withFolderLock('x', () => {
+      order.push('falha')
+      return Promise.reject(new Error('boom'))
+    })
+    const last = withFolderLock('x', () => {
+      order.push('última')
+      return Promise.resolve()
+    })
+    await slow
+    await expect(failing).rejects.toThrow('boom')
+    await last
+    expect(order).toEqual(['lenta', 'falha', 'última'])
   })
 })

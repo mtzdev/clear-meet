@@ -36,3 +36,19 @@ export function insertNote(notes: readonly MeetingNote[], note: MeetingNote): Me
   if (index === -1) return [...notes, note]
   return [...notes.slice(0, index), note, ...notes.slice(index)]
 }
+
+/** Troca o texto de uma Anotação (o Instante e o resto ficam). `null` se ela não existe. */
+export function replaceNoteText(
+  notes: readonly MeetingNote[],
+  id: string,
+  text: string
+): MeetingNote[] | null {
+  if (!notes.some((note) => note.id === id)) return null
+  return notes.map((note) => (note.id === id ? { ...note, text } : note))
+}
+
+/** Remove uma Anotação. `null` se ela não existe. */
+export function removeNote(notes: readonly MeetingNote[], id: string): MeetingNote[] | null {
+  if (!notes.some((note) => note.id === id)) return null
+  return notes.filter((note) => note.id !== id)
+}

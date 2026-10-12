@@ -51,6 +51,16 @@ function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
     renameMeeting: (folder, name) =>
       Promise.resolve({ ok: true, value: { folder, name, folderRenamed: true } }),
     revealMeeting: () => Promise.resolve(),
+    meetings: {
+      list: () => Promise.resolve({ items: [], skipped: 0 }),
+      get: () =>
+        Promise.resolve({ ok: false, error: { code: 'not-found', message: 'não existe' } }),
+      addNote: () =>
+        Promise.resolve({ ok: false, error: { code: 'not-found', message: 'não existe' } }),
+      updateNote: () =>
+        Promise.resolve({ ok: false, error: { code: 'not-found', message: 'não existe' } }),
+      deleteNote: () => Promise.resolve(ok)
+    },
     settings: { view: () => settingsView, update: () => Promise.resolve(settingsView) },
     recovery: {
       getReport: () => ({ checkedAt: null, running: false, items: [] }),
@@ -127,6 +137,36 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
       ok: true,
       value: { folder: 'C:\\m\\a', name: 'Novo', folderRenamed: true }
     })
+  })
+
+  it('os canais das Reuniões e Anotações chegam aos handlers', async () => {
+    const { api } = createWiredApi(
+      fakeDeps({
+        meetings: {
+          list: () => Promise.resolve({ items: [], skipped: 2 }),
+          get: (id) =>
+            Promise.resolve({ ok: false, error: { code: 'not-found', message: `sem ${id}` } }),
+          addNote: (folder, offsetMs, text) =>
+            Promise.resolve({
+              ok: true,
+              value: { id: folder, offsetMs, text, createdAt: '2026-10-10T10:00:00.000Z' }
+            }),
+          updateNote: () => Promise.resolve({ ok: false, error: { code: 'busy', message: 'x' } }),
+          deleteNote: (_folder, noteId) =>
+            Promise.resolve(
+              noteId === 'a' ? ok : { ok: false, error: { code: 'not-found', message: 'x' } }
+            )
+        }
+      })
+    )
+    expect(await api.invoke('meetings:list')).toEqual({ items: [], skipped: 2 })
+    expect(await api.invoke('meeting:get', { id: 'abc' })).toEqual({
+      ok: false,
+      error: { code: 'not-found', message: 'sem abc' }
+    })
+    const added = await api.invoke('meeting:addNote', { folder: 'F', offsetMs: 1500, text: 'oi' })
+    expect(added.ok && added.value).toMatchObject({ offsetMs: 1500, text: 'oi' })
+    expect(await api.invoke('meeting:deleteNote', { folder: 'F', noteId: 'a' })).toEqual(ok)
   })
 
   it('erros previstos voltam como Result, não como exceção', async () => {

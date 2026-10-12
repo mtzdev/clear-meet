@@ -32,6 +32,7 @@ export interface StartRecordingRequest {
 
 export type RecordingErrorCode =
   | 'busy'
+  | 'not-found'
   | 'not-recording'
   | 'no-disk-space'
   | 'source-unavailable'

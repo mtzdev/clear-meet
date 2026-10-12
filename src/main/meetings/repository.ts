@@ -16,13 +16,39 @@ export function newMeetingId(): string {
   return randomUUID()
 }
 
+/** Erro de `readMeeting` quando a pasta não tem `meeting.json` (não é uma Reunião). */
+export const MEETING_NOT_FOUND = 'meeting.json não encontrado'
+
+const folderLocks = new Map<string, Promise<unknown>>()
+
+function lockKey(folder: string): string {
+  const resolved = resolve(folder)
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
+/**
+ * Executa `task` depois de todas as tarefas anteriores da mesma pasta: leituras-modificações-
+ * escritas do `meeting.json` (Anotações, nome) nunca se atropelam e nenhuma perde a outra.
+ */
+export function withFolderLock<T>(folder: string, task: () => Promise<T>): Promise<T> {
+  const key = lockKey(folder)
+  const previous = folderLocks.get(key) ?? Promise.resolve()
+  const run = previous.then(task, task)
+  const tail = run.catch(() => undefined)
+  folderLocks.set(key, tail)
+  void tail.then(() => {
+    if (folderLocks.get(key) === tail) folderLocks.delete(key)
+  })
+  return run
+}
+
 /** Lê e valida o `meeting.json` de uma pasta. Nunca lança. */
 export async function readMeeting(folder: string): Promise<ParseResult<MeetingFile>> {
   let text: string
   try {
     text = await readFile(join(folder, MEETING_FILE), 'utf8')
   } catch {
-    return { ok: false, error: 'meeting.json não encontrado' }
+    return { ok: false, error: MEETING_NOT_FOUND }
   }
   return parseMeetingText(text)
 }
@@ -66,15 +92,27 @@ function fail(code: RecordingError['code'], message: string): { ok: false; error
  * para refletir o novo nome (`AAAA-MM-DD HHMM - Nome`, com a data de início). No Windows
  * uma pasta com arquivo aberto (antivírus, indexador, player) não renomeia; nesse caso o
  * nome fica salvo no `meeting.json`, a pasta mantém o nome antigo e `folderRenamed` é `false`.
+ * `renameFolder` existe para os testes simularem a pasta em uso.
  */
-export async function renameMeeting(
+export function renameMeeting(
   root: string,
   folder: string,
-  rawName: string
+  rawName: string,
+  renameFolder: (from: string, to: string) => Promise<void> = renameWithRetry
 ): Promise<Result<RenamedMeeting>> {
   if (!isDirectChild(root, folder)) {
-    return fail('invalid-request', 'A pasta não está dentro da pasta das Reuniões.')
+    return Promise.resolve(
+      fail('invalid-request', 'A pasta não está dentro da pasta das Reuniões.')
+    )
   }
+  return withFolderLock(folder, () => renameLocked(folder, rawName, renameFolder))
+}
+
+async function renameLocked(
+  folder: string,
+  rawName: string,
+  renameFolder: (from: string, to: string) => Promise<void>
+): Promise<Result<RenamedMeeting>> {
   const name = rawName.replace(/\s+/g, ' ').trim()
   if (name === '') return fail('invalid-request', 'O nome da Reunião não pode ficar vazio.')
 
@@ -94,7 +132,7 @@ export async function renameMeeting(
     }
     if (await exists(target)) continue
     try {
-      await renameWithRetry(folder, target)
+      await renameFolder(folder, target)
       return { ok: true, value: { folder: target, name, folderRenamed: true } }
     } catch {
       return { ok: true, value: { folder, name, folderRenamed: false } }

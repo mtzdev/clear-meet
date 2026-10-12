@@ -7,10 +7,12 @@ import {
   Menu,
   nativeTheme,
   powerSaveBlocker,
+  protocol,
   session,
   shell
 } from 'electron'
 import type { IpcEventName, IpcEventPayload } from '@shared/ipc'
+import { MEDIA_SCHEME } from '@shared/media'
 import {
   assessDisk,
   mainWindowCloseAction,
@@ -28,6 +30,9 @@ import { createRecordingTray } from './floating/tray'
 import { createBarWindow, createNoteWindow, readDisplays } from './floating/windows'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
+import { createMediaHandler } from './media/handler'
+import { findMeetingFolder, listMeetings, loadMeetingDetail } from './meetings/library'
+import { addMeetingNote, deleteMeetingNote, editMeetingNote } from './meetings/notes-store'
 import { isDirectChild, renameMeeting } from './meetings/repository'
 import { RecoveryService } from './recording/recovery-service'
 import { createRecorderSessionFactory, recorderPaths } from './recording/recorder-window'
@@ -58,6 +63,15 @@ if (!app.isPackaged && process.env['CLEARMEET_FAKE_MEDIA']) {
   app.commandLine.appendSwitch('use-fake-device-for-media-stream')
   app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
 }
+
+// Esquema próprio para o player ler `video.mp4` / `audio.opus` (ver `media/handler.ts`).
+// `stream` é necessário para tocar mídia com seek; precisa ser registrado antes do `ready`.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: MEDIA_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+  }
+])
 
 // Uma instância só: abrir de novo apenas traz a janela existente para a frente.
 if (!app.requestSingleInstanceLock()) {
@@ -140,6 +154,7 @@ if (!app.requestSingleInstanceLock()) {
       (contents) => recorderFactory.isRecorder(contents),
       () => (mainWindow ? [mainWindow] : [])
     )
+    protocol.handle(MEDIA_SCHEME, createMediaHandler(meetingsDir))
     captureSources.install(session.defaultSession)
     installPermissionHandlers(
       session.defaultSession,
@@ -266,6 +281,27 @@ if (!app.requestSingleInstanceLock()) {
         },
         revealMeeting: async (folder) => {
           if (isDirectChild(meetingsDir(), folder)) await shell.openPath(folder)
+        },
+        meetings: {
+          list: () => listMeetings(meetingsDir(), service.activeFolder()),
+          get: async (id) => {
+            const folder = await findMeetingFolder(meetingsDir(), id)
+            if (!folder) {
+              return {
+                ok: false,
+                error: {
+                  code: 'not-found',
+                  message: 'A Reunião não foi encontrada. Ela pode ter sido movida ou apagada.'
+                }
+              }
+            }
+            return loadMeetingDetail(meetingsDir(), folder, service.activeFolder())
+          },
+          addNote: (folder, offsetMs, text) =>
+            addMeetingNote(meetingsDir(), folder, { offsetMs, text }),
+          updateNote: (folder, noteId, text) =>
+            editMeetingNote(meetingsDir(), folder, noteId, text),
+          deleteNote: (folder, noteId) => deleteMeetingNote(meetingsDir(), folder, noteId)
         },
         settings: {
           view: () => settings.view(),

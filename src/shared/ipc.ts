@@ -1,5 +1,7 @@
 import type { FfmpegStatus } from './ffmpeg'
 import type { FloatingInfo, NoteSavedEvent } from './floating'
+import type { MeetingDetail, MeetingList } from './library'
+import type { MeetingNote } from './meeting'
 import type {
   AudioLevels,
   CaptureSourceInfo,
@@ -37,6 +39,20 @@ export interface IpcContract {
   /** Renomeia a Reunião no `meeting.json` e, se possível, a pasta. */
   'meeting:rename': { request: { folder: string; name: string }; response: Result<RenamedMeeting> }
   'meeting:reveal': { request: { folder: string }; response: null }
+  /** Reuniões lidas das pastas, mais recentes primeiro. */
+  'meetings:list': { request: void; response: MeetingList }
+  /** Abre uma Reunião pelo `id` (o `meeting.json` é a verdade; a pasta pode ter sido renomeada). */
+  'meeting:get': { request: { id: string }; response: Result<MeetingDetail> }
+  /** Anotações depois da gravação (só Reuniões prontas). `offsetMs` é o Instante. */
+  'meeting:addNote': {
+    request: { folder: string; offsetMs: number; text: string }
+    response: Result<MeetingNote>
+  }
+  'meeting:updateNote': {
+    request: { folder: string; noteId: string; text: string }
+    response: Result<MeetingNote>
+  }
+  'meeting:deleteNote': { request: { folder: string; noteId: string }; response: Result<null> }
   'settings:get': { request: void; response: SettingsView }
   'settings:update': { request: SettingsPatch; response: SettingsView }
   'recovery:getReport': { request: void; response: RecoveryReport }
@@ -108,6 +124,11 @@ export const IPC_CHANNELS = {
   'recording:acknowledge': true,
   'meeting:rename': true,
   'meeting:reveal': true,
+  'meetings:list': true,
+  'meeting:get': true,
+  'meeting:addNote': true,
+  'meeting:updateNote': true,
+  'meeting:deleteNote': true,
   'settings:get': true,
   'settings:update': true,
   'recovery:getReport': true,
