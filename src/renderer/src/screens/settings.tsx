@@ -1,6 +1,7 @@
 import { CircleCheck, LoaderCircle, TriangleAlert } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Screen } from '@/components/layout/screen'
+import { AiSection } from '@/components/settings/ai-section'
 import { useIpcQuery } from '@/lib/ipc'
 import type { FfmpegSource, FfmpegStatus } from '@shared/ffmpeg'
 
@@ -138,6 +139,9 @@ export function SettingsScreen() {
           <Row label="Tema" hint="Acompanha o modo claro ou escuro do Windows.">
             <span className="text-muted-foreground">Automático</span>
           </Row>
+        </Section>
+        <Section title="IA">
+          <AiSection />
         </Section>
         <Section title="Sistema">
           <VersionRow />

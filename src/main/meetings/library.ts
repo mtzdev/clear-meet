@@ -9,6 +9,7 @@ import {
 } from '@shared/library'
 import { MEETING_FILES, type MeetingFile } from '@shared/meeting'
 import type { RecordingError, Result } from '@shared/recording'
+import { makeTranscriptView, type TranscriptProgress } from '@shared/transcript'
 import { sameFolder } from './paths'
 import { isDirectChild, listMeetingFolders, MEETING_NOT_FOUND, readMeeting } from './repository'
 
@@ -26,7 +27,8 @@ export function toListItem(folder: string, meeting: MeetingFile, live: boolean):
     status: meeting.status,
     live,
     source: meeting.source,
-    noteCount: meeting.notes.length
+    noteCount: meeting.notes.length,
+    transcriptStatus: meeting.transcript?.status ?? 'none'
   }
 }
 
@@ -78,7 +80,8 @@ function videoAspect(meeting: MeetingFile): number | null {
 export async function loadMeetingDetail(
   root: string,
   folder: string,
-  activeFolder: string | null
+  activeFolder: string | null,
+  transcriptProgress: (folder: string) => TranscriptProgress | null = () => null
 ): Promise<Result<MeetingDetail>> {
   if (!isDirectChild(root, folder)) {
     return fail('invalid-request', 'A pasta não está dentro da pasta das Reuniões.')
@@ -114,7 +117,8 @@ export async function loadMeetingDetail(
       videoAspect: videoAspect(meeting),
       notes: [...meeting.notes].sort((a, b) => a.offsetMs - b.offsetMs),
       issues: meeting.issues,
-      lock: lockFor(meeting.status, live)
+      lock: lockFor(meeting.status, live),
+      transcript: makeTranscriptView(meeting.transcript, transcriptProgress(folder))
     }
   }
 }

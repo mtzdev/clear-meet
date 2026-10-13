@@ -1,3 +1,4 @@
+import type { AiProvider, AiStatus, KeyTestResult } from './ai'
 import type { FfmpegStatus } from './ffmpeg'
 import type { FloatingInfo, NoteSavedEvent } from './floating'
 import type { MeetingDetail, MeetingList } from './library'
@@ -14,6 +15,7 @@ import type {
   StartRecordingRequest
 } from './recording'
 import type { SettingsPatch, SettingsView } from './settings'
+import type { TranscriptChangedEvent, TranscriptFile } from './transcript'
 
 /**
  * Contrato único de IPC (renderer -> main). Cada canal declara o tipo do
@@ -53,6 +55,27 @@ export interface IpcContract {
     response: Result<MeetingNote>
   }
   'meeting:deleteNote': { request: { folder: string; noteId: string }; response: Result<null> }
+  /** Transcrição pronta (`transcript.json`), ou `null` se a Reunião ainda não tem. */
+  'transcript:get': { request: { folder: string }; response: Result<TranscriptFile | null> }
+  /** Começa a Transcrição em segundo plano (ou retoma uma que falhou); o andamento vem por evento. */
+  'transcript:start': {
+    request: { folder: string; requestSummary: boolean; model?: string }
+    response: Result<null>
+  }
+  'transcript:cancel': { request: { folder: string }; response: null }
+  /** Renomeia um Falante em `transcript.json` (vale para a Transcrição inteira). */
+  'transcript:renameSpeaker': {
+    request: { folder: string; speakerId: string; name: string }
+    response: Result<TranscriptFile>
+  }
+  /** Chaves de IA: o renderer só vê "configurada" e os últimos 4 caracteres. */
+  'ai:getStatus': { request: void; response: AiStatus }
+  'ai:setKey': { request: { provider: AiProvider; key: string }; response: Result<AiStatus> }
+  'ai:clearKey': { request: { provider: AiProvider }; response: AiStatus }
+  /** Valida uma chave com uma chamada barata; sem `key`, testa a salva. */
+  'ai:testKey': { request: { provider: AiProvider; key: string | null }; response: KeyTestResult }
+  /** Abre no navegador um dos endereços permitidos (links para obter as chaves). */
+  'app:openExternal': { request: { url: string }; response: null }
   'settings:get': { request: void; response: SettingsView }
   'settings:update': { request: SettingsPatch; response: SettingsView }
   'recovery:getReport': { request: void; response: RecoveryReport }
@@ -83,6 +106,8 @@ export interface IpcEventContract {
   'notes:saved': NoteSavedEvent
   /** O campo de Anotação foi aberto: a UI limpa o texto e foca. */
   'notes:opened': null
+  /** O estado ou o progresso da Transcrição de uma Reunião mudou. */
+  'transcript:changed': TranscriptChangedEvent
 }
 
 export type IpcEventName = keyof IpcEventContract
@@ -129,6 +154,15 @@ export const IPC_CHANNELS = {
   'meeting:addNote': true,
   'meeting:updateNote': true,
   'meeting:deleteNote': true,
+  'transcript:get': true,
+  'transcript:start': true,
+  'transcript:cancel': true,
+  'transcript:renameSpeaker': true,
+  'ai:getStatus': true,
+  'ai:setKey': true,
+  'ai:clearKey': true,
+  'ai:testKey': true,
+  'app:openExternal': true,
   'settings:get': true,
   'settings:update': true,
   'recovery:getReport': true,
@@ -148,7 +182,8 @@ export const IPC_EVENTS = {
   'recovery:report': true,
   'floating:info': true,
   'notes:saved': true,
-  'notes:opened': true
+  'notes:opened': true,
+  'transcript:changed': true
 } as const satisfies Record<IpcEventName, true>
 
 export function isIpcEvent(value: unknown): value is IpcEventName {

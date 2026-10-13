@@ -38,6 +38,8 @@ export type RecordingErrorCode =
   | 'source-unavailable'
   | 'recorder-failed'
   | 'invalid-request'
+  | 'no-api-key'
+  | 'ffmpeg-missing'
   | 'unknown'
 
 export interface RecordingError {

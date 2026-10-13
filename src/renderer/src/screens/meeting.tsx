@@ -7,6 +7,7 @@ import { MeetingHeader } from '@/components/meeting/meeting-header'
 import { NotesTab } from '@/components/meeting/notes-tab'
 import { SidePanel } from '@/components/meeting/side-panel'
 import { SplitLayout } from '@/components/meeting/split-layout'
+import { TranscriptTab } from '@/components/meeting/transcript-tab'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { issueText, LOCK_TEXT } from '@/lib/meeting-text'
@@ -14,6 +15,7 @@ import { useMeetingDetail } from '@/lib/meetings'
 import { PlayerController } from '@/lib/player-controller'
 import { useRecordingState } from '@/lib/recording'
 import { useMeetingId } from '@/lib/router'
+import { useTranscriptView } from '@/lib/transcript'
 import { usePlayerShortcuts } from '@/lib/use-player-shortcuts'
 import type { MeetingDetail } from '@shared/library'
 import { mediaUrl } from '@shared/media'
@@ -116,6 +118,8 @@ function MeetingView({
   usePlayerShortcuts(controller, true)
 
   const locked = detail.lock !== null
+  const transcript = useTranscriptView(detail.id, detail.transcript)
+  const transcribing = transcript.status === 'running'
 
   /** Solta o arquivo, renomeia (nome + pasta) e volta a tocar do mesmo ponto. */
   const rename = async (name: string): Promise<string | null> => {
@@ -161,6 +165,16 @@ function MeetingView({
   const panel = (
     <SidePanel
       noteCount={detail.notes.length}
+      hasTranscript={transcript.status === 'running' || transcript.status === 'ready'}
+      transcript={
+        <TranscriptTab
+          folder={detail.folder}
+          locked={locked}
+          hasAudioFile={detail.hasAudioFile}
+          view={transcript}
+          controller={controller}
+        />
+      }
       notes={
         <NotesTab
           folder={detail.folder}
@@ -176,7 +190,7 @@ function MeetingView({
 
   return (
     <section aria-labelledby="screen-title" className="flex h-full min-h-0 flex-col">
-      <MeetingHeader detail={detail} canRename={!locked} onRename={rename} />
+      <MeetingHeader detail={detail} canRename={!locked && !transcribing} onRename={rename} />
       {detail.lock && (
         <Alert className="border-warning/40 text-warning mx-4 my-3 w-auto shrink-0">
           <TriangleAlert aria-hidden />

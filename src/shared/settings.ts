@@ -1,3 +1,4 @@
+import { DEFAULT_TRANSCRIPTION_MODEL, isTranscriptionModel } from './ai'
 import { DEFAULT_QUALITY, isQualityPreset, type QualityPreset } from './capture'
 import type { Point } from './floating'
 import { DEFAULT_NOTE_LEAD_SECONDS, DEFAULT_NOTE_SHORTCUT, MAX_NOTE_LEAD_SECONDS } from './notes'
@@ -42,6 +43,8 @@ export interface AppSettings {
   noteLeadSeconds: number
   /** Última posição da barra flutuante (DIP); `null` = topo-centro do monitor principal. */
   barPosition: Point | null
+  /** Modelo do Gemini que gera a Transcrição. */
+  transcriptionModel: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -52,7 +55,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   micDeviceId: null,
   noteShortcut: DEFAULT_NOTE_SHORTCUT,
   noteLeadSeconds: DEFAULT_NOTE_LEAD_SECONDS,
-  barPosition: null
+  barPosition: null,
+  transcriptionModel: DEFAULT_TRANSCRIPTION_MODEL
 }
 
 export const SETTINGS_SCHEMA_VERSION = 1
@@ -63,7 +67,9 @@ export interface SettingsView extends AppSettings {
 }
 
 /** O que a UI pode alterar nesta fase. */
-export type SettingsPatch = Partial<Pick<AppSettings, 'quality' | 'micDeviceId'>>
+export type SettingsPatch = Partial<
+  Pick<AppSettings, 'quality' | 'micDeviceId' | 'transcriptionModel'>
+>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -110,7 +116,10 @@ export function parseSettings(raw: unknown): AppSettings {
       raw.noteLeadSeconds <= MAX_NOTE_LEAD_SECONDS
         ? raw.noteLeadSeconds
         : DEFAULT_SETTINGS.noteLeadSeconds,
-    barPosition: parseBarPosition(raw.barPosition)
+    barPosition: parseBarPosition(raw.barPosition),
+    transcriptionModel: isTranscriptionModel(raw.transcriptionModel)
+      ? raw.transcriptionModel
+      : DEFAULT_SETTINGS.transcriptionModel
   }
 }
 
@@ -121,6 +130,9 @@ export function applySettingsPatch(current: AppSettings, patch: SettingsPatch): 
   if (patch.micDeviceId !== undefined) {
     next.micDeviceId =
       typeof patch.micDeviceId === 'string' && patch.micDeviceId !== '' ? patch.micDeviceId : null
+  }
+  if (patch.transcriptionModel !== undefined && isTranscriptionModel(patch.transcriptionModel)) {
+    next.transcriptionModel = patch.transcriptionModel
   }
   return next
 }

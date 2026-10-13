@@ -1,4 +1,5 @@
 import type { CaptureSourceKind, MeetingIssue, MeetingNote, MeetingStatus } from './meeting'
+import type { TranscriptStatus, TranscriptView } from './transcript'
 
 /** Uma Reunião na lista. */
 export interface MeetingListItem {
@@ -15,6 +16,7 @@ export interface MeetingListItem {
   live: boolean
   source: { kind: CaptureSourceKind; name: string | null }
   noteCount: number
+  transcriptStatus: TranscriptStatus
 }
 
 export interface MeetingList {
@@ -65,4 +67,5 @@ export interface MeetingDetail {
   notes: MeetingNote[]
   issues: MeetingIssue[]
   lock: MeetingLock | null
+  transcript: TranscriptView
 }

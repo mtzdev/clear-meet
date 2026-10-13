@@ -23,7 +23,12 @@ describe('contrato de IPC', () => {
 
   it('lista de canais em runtime espelha o contrato', () => {
     expect(Object.keys(IPC_CHANNELS).sort()).toEqual([
+      'ai:clearKey',
+      'ai:getStatus',
+      'ai:setKey',
+      'ai:testKey',
       'app:getVersion',
+      'app:openExternal',
       'capture:listSources',
       'ffmpeg:status',
       'floating:getInfo',
@@ -50,7 +55,11 @@ describe('contrato de IPC', () => {
       'recovery:getReport',
       'recovery:retry',
       'settings:get',
-      'settings:update'
+      'settings:update',
+      'transcript:cancel',
+      'transcript:get',
+      'transcript:renameSpeaker',
+      'transcript:start'
     ])
   })
 
@@ -76,7 +85,8 @@ describe('contrato de IPC', () => {
       'notes:saved',
       'recording:level',
       'recording:state',
-      'recovery:report'
+      'recovery:report',
+      'transcript:changed'
     ])
   })
 

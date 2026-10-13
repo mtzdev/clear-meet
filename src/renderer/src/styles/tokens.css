@@ -33,6 +33,15 @@
   --warning: #b45309;
   --record: #e11d48;
 
+  --speaker-1: #4f46e5;
+  --speaker-2: #0f766e;
+  --speaker-3: #b45309;
+  --speaker-4: #be185d;
+  --speaker-5: #1d4ed8;
+  --speaker-6: #15803d;
+  --speaker-7: #7c3aed;
+  --speaker-8: #c2410c;
+
   --sidebar: #f3f4f7;
   --sidebar-foreground: #4b4e5c;
   --sidebar-accent: #e4e6fb;
@@ -69,6 +78,15 @@
   --success: #4ade80;
   --warning: #fbbf24;
   --record: #fb7185;
+
+  --speaker-1: #818cf8;
+  --speaker-2: #2dd4bf;
+  --speaker-3: #fbbf24;
+  --speaker-4: #f472b6;
+  --speaker-5: #60a5fa;
+  --speaker-6: #4ade80;
+  --speaker-7: #a78bfa;
+  --speaker-8: #fb923c;
 
   --sidebar: #0a0b0e;
   --sidebar-foreground: #a3a5b3;

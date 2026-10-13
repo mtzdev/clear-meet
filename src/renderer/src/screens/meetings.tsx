@@ -1,4 +1,5 @@
-import { Library, NotebookText, TriangleAlert } from 'lucide-react'
+import { Library, LoaderCircle, NotebookText, TriangleAlert } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { EmptyState } from '@/components/empty-state'
 import { Screen } from '@/components/layout/screen'
 import { SourceIcon } from '@/components/meeting/source-icon'
@@ -9,8 +10,9 @@ import { useIpcQuery } from '@/lib/ipc'
 import { SOURCE_KIND_LABEL, statusLabel } from '@/lib/meeting-text'
 import { meetingHref } from '@/lib/router'
 import type { MeetingListItem } from '@shared/library'
+import type { TranscriptStatus } from '@shared/transcript'
 
-function MeetingRow({ item }: { item: MeetingListItem }) {
+function MeetingRow({ item, transcript }: { item: MeetingListItem; transcript: TranscriptStatus }) {
   const status = statusLabel(item.status, item.live)
   const details = [
     formatDateTime(item.createdAt),
@@ -38,6 +40,17 @@ function MeetingRow({ item }: { item: MeetingListItem }) {
             {status}
           </Badge>
         )}
+        {transcript === 'running' && (
+          <Badge variant="outline" className="shrink-0">
+            <LoaderCircle className="animate-spin" aria-hidden />
+            Transcrevendo…
+          </Badge>
+        )}
+        {transcript === 'error' && (
+          <Badge variant="outline" className="text-warning shrink-0">
+            Transcrição interrompida
+          </Badge>
+        )}
         <span
           className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs tabular-nums"
           title={`${item.noteCount} ${item.noteCount === 1 ? 'Anotação' : 'Anotações'}`}
@@ -52,6 +65,15 @@ function MeetingRow({ item }: { item: MeetingListItem }) {
 
 export function MeetingsScreen() {
   const query = useIpcQuery('meetings:list')
+  // Estados de Transcrição que mudaram depois de a lista ser lida.
+  const [transcripts, setTranscripts] = useState<Record<string, TranscriptStatus>>({})
+  useEffect(
+    () =>
+      window.api.on('transcript:changed', (event) => {
+        setTranscripts((current) => ({ ...current, [event.meetingId]: event.view.status }))
+      }),
+    []
+  )
 
   return (
     <Screen title="Reuniões">
@@ -86,7 +108,11 @@ export function MeetingsScreen() {
         <div className="mx-auto max-w-4xl space-y-4 px-8 py-6">
           <ul className="space-y-2">
             {query.data.items.map((item) => (
-              <MeetingRow key={item.id} item={item} />
+              <MeetingRow
+                key={item.id}
+                item={item}
+                transcript={transcripts[item.id] ?? item.transcriptStatus}
+              />
             ))}
           </ul>
           {query.data.skipped > 0 && (

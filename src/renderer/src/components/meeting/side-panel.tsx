@@ -1,4 +1,4 @@
-import { MessageCircleQuestion, ScrollText, Sparkles, type LucideIcon } from 'lucide-react'
+import { MessageCircleQuestion, Sparkles, type LucideIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
@@ -29,11 +29,13 @@ function Placeholder({
 interface SidePanelProps {
   noteCount: number
   notes: ReactNode
+  transcript: ReactNode
+  /** Abre direto na Transcrição quando ela existe ou está sendo gerada. */
+  hasTranscript: boolean
 }
 
-export function SidePanel({ noteCount, notes }: SidePanelProps) {
-  // Resumo e Transcrição ainda não existem: o app abre na aba que já é útil.
-  const [tab, setTab] = useState<TabId>('notes')
+export function SidePanel({ noteCount, notes, transcript, hasTranscript }: SidePanelProps) {
+  const [tab, setTab] = useState<TabId>(hasTranscript ? 'transcript' : 'notes')
 
   return (
     <Tabs
@@ -63,11 +65,7 @@ export function SidePanel({ noteCount, notes }: SidePanelProps) {
         />
       </TabsContent>
       <TabsContent value="transcript" className="min-h-0">
-        <Placeholder
-          icon={ScrollText}
-          title="A Transcrição ainda não foi gerada"
-          description="Ela mostrará as falas de cada Falante, cada uma com o Instante em que foi dita."
-        />
+        {transcript}
       </TabsContent>
       {/* Sempre montada: o texto que está sendo digitado não se perde ao trocar de aba. */}
       <TabsContent value="notes" forceMount className="min-h-0 data-[state=inactive]:hidden">

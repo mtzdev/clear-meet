@@ -1,4 +1,5 @@
 import { isQualityPreset, type QualityPreset } from './capture'
+import { parseTranscriptMeta, type TranscriptMeta } from './transcript'
 
 /**
  * `meeting.json`: o registro de uma Reunião dentro da sua pasta (ADR 0005 — a pasta é a
@@ -79,8 +80,9 @@ export interface MeetingFile {
   notes: MeetingNote[]
   /** Ocorrências da gravação; vazio quando tudo correu bem. */
   issues: MeetingIssue[]
-  /** Reservados para a Fase 5 (Transcrição, Resumo, Conversa): preservados como estão. */
-  transcript?: unknown
+  /** Estado da Transcrição; as Falas ficam em `transcript.json`, na mesma pasta. */
+  transcript?: TranscriptMeta
+  /** Reservados para o Resumo e a Conversa: preservados como estão. */
   summary?: unknown
   chat?: unknown
 }
@@ -241,7 +243,9 @@ export function parseMeeting(raw: unknown): ParseResult<MeetingFile> {
     notes,
     issues
   }
-  for (const key of ['transcript', 'summary', 'chat'] as const) {
+  const transcript = parseTranscriptMeta(raw.transcript)
+  if (transcript) meeting.transcript = transcript
+  for (const key of ['summary', 'chat'] as const) {
     if (raw[key] !== undefined) meeting[key] = raw[key]
   }
   return { ok: true, value: meeting }

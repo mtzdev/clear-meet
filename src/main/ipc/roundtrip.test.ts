@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { AiStatus } from '@shared/ai'
 import type { FfmpegStatus } from '@shared/ffmpeg'
 import { IPC_CHANNELS, IPC_EVENTS } from '@shared/ipc'
 import { IDLE_STATE, type RecordingState, type Result } from '@shared/recording'
@@ -27,10 +28,16 @@ const settingsView: SettingsView = {
   noteShortcut: 'Ctrl+Shift+Space',
   noteLeadSeconds: 5,
   barPosition: null,
+  transcriptionModel: 'gemini-3.5-flash-lite',
   resolvedMeetingsDir: 'C:\\Users\\x\\Documents\\ClearMeet'
 }
 
 const ok: Result<null> = { ok: true, value: null }
+
+const aiStatus: AiStatus = {
+  encryptionAvailable: true,
+  keys: { gemini: { configured: true, last4: 'abcd' }, groq: { configured: false, last4: null } }
+}
 
 function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
   return {
@@ -61,6 +68,20 @@ function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
         Promise.resolve({ ok: false, error: { code: 'not-found', message: 'não existe' } }),
       deleteNote: () => Promise.resolve(ok)
     },
+    transcript: {
+      get: () => Promise.resolve({ ok: true, value: null }),
+      start: () => Promise.resolve(ok),
+      cancel: () => undefined,
+      renameSpeaker: () =>
+        Promise.resolve({ ok: false, error: { code: 'not-found', message: 'sem Transcrição' } })
+    },
+    ai: {
+      getStatus: () => aiStatus,
+      setKey: () => Promise.resolve({ ok: true, value: aiStatus }),
+      clearKey: () => Promise.resolve(aiStatus),
+      testKey: () => Promise.resolve({ ok: true })
+    },
+    openExternal: () => Promise.resolve(),
     settings: { view: () => settingsView, update: () => Promise.resolve(settingsView) },
     recovery: {
       getReport: () => ({ checkedAt: null, running: false, items: [] }),
@@ -208,7 +229,62 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
       'notes:saved',
       'recording:level',
       'recording:state',
-      'recovery:report'
+      'recovery:report',
+      'transcript:changed'
     ])
+  })
+
+  it('os canais de IA e Transcrição chegam aos handlers e o evento chega à UI', async () => {
+    const started: [string, boolean][] = []
+    const { api, emit } = createWiredApi(
+      fakeDeps({
+        transcript: {
+          get: () => Promise.resolve({ ok: true, value: null }),
+          start: (folder, requestSummary) => {
+            started.push([folder, requestSummary])
+            return Promise.resolve(ok)
+          },
+          cancel: () => undefined,
+          renameSpeaker: () =>
+            Promise.resolve({ ok: false, error: { code: 'busy', message: 'transcrevendo' } })
+        },
+        ai: {
+          getStatus: () => aiStatus,
+          setKey: (provider) =>
+            Promise.resolve({
+              ok: true,
+              value: { ...aiStatus, encryptionAvailable: provider === 'groq' }
+            }),
+          clearKey: () => Promise.resolve(aiStatus),
+          testKey: (_provider, key) =>
+            Promise.resolve(
+              key === null
+                ? { ok: false, kind: 'invalid-key', message: 'Cole a chave.' }
+                : { ok: true }
+            )
+        }
+      })
+    )
+    expect((await api.invoke('ai:getStatus')).keys.gemini.last4).toBe('abcd')
+    expect(await api.invoke('ai:setKey', { provider: 'groq', key: 'x' })).toMatchObject({
+      ok: true,
+      value: { encryptionAvailable: true }
+    })
+    expect(await api.invoke('ai:testKey', { provider: 'gemini', key: null })).toMatchObject({
+      ok: false,
+      kind: 'invalid-key'
+    })
+    expect(await api.invoke('transcript:start', { folder: 'F', requestSummary: true })).toEqual(ok)
+    expect(started).toEqual([['F', true]])
+    expect(await api.invoke('transcript:get', { folder: 'F' })).toEqual({ ok: true, value: null })
+    expect(await api.invoke('transcript:cancel', { folder: 'F' })).toBeNull()
+    expect(
+      await api.invoke('transcript:renameSpeaker', { folder: 'F', speakerId: 's1', name: 'Ana' })
+    ).toMatchObject({ ok: false, error: { code: 'busy' } })
+
+    const received: string[] = []
+    api.on('transcript:changed', (event) => received.push(event.view.status))
+    emit('transcript:changed', { meetingId: 'm', folder: 'F', view: { status: 'running' } })
+    expect(received).toEqual(['running'])
   })
 })

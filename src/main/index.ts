@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   app,
@@ -8,9 +9,11 @@ import {
   nativeTheme,
   powerSaveBlocker,
   protocol,
+  safeStorage,
   session,
   shell
 } from 'electron'
+import { API_KEY_LINKS, isAiProvider } from '@shared/ai'
 import type { IpcEventName, IpcEventPayload } from '@shared/ipc'
 import { MEDIA_SCHEME } from '@shared/media'
 import {
@@ -19,6 +22,10 @@ import {
   type PreflightInfo,
   type RecordingState
 } from '@shared/recording'
+import { GeminiClient } from './ai/gemini'
+import { KeyStore } from './ai/keys'
+import { testApiKey } from './ai/test-key'
+import { TranscriptionService } from './ai/transcription/service'
 import { getFfmpegStatus, type StatusOptions } from './ffmpeg'
 import { resolveFfmpegTools } from './ffmpeg/media'
 import { freeDiskBytes } from './fs/atomic'
@@ -34,6 +41,7 @@ import { createMediaHandler } from './media/handler'
 import { findMeetingFolder, listMeetings, loadMeetingDetail } from './meetings/library'
 import { addMeetingNote, deleteMeetingNote, editMeetingNote } from './meetings/notes-store'
 import { isDirectChild, renameMeeting } from './meetings/repository'
+import { readTranscript, renameTranscriptSpeaker } from './meetings/transcript-store'
 import { RecoveryService } from './recording/recovery-service'
 import { createRecorderSessionFactory, recorderPaths } from './recording/recorder-window'
 import { RecordingService } from './recording/service'
@@ -134,6 +142,13 @@ if (!app.requestSingleInstanceLock()) {
     await settings.load()
     const meetingsDir = (): string =>
       devMeetingsDir ?? resolveMeetingsDir(settings.get(), app.getPath('documents'))
+
+    const keys = new KeyStore(app.getPath('userData'), {
+      isAvailable: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (text) => safeStorage.encryptString(text),
+      decrypt: (data) => safeStorage.decryptString(data)
+    })
+    await keys.load()
 
     const ffmpegOptions: StatusOptions = {
       env: process.env,
@@ -247,6 +262,19 @@ if (!app.requestSingleInstanceLock()) {
       log
     })
 
+    const transcription = new TranscriptionService({
+      meetingsDir,
+      getTools,
+      geminiKey: () => keys.get('gemini'),
+      model: () => settings.get().transcriptionModel,
+      createClient: (key) => new GeminiClient(key, { log }),
+      tempRoot: tmpdir(),
+      emit: (event) => sendToRenderer('transcript:changed', event),
+      now: () => Date.now(),
+      log
+    })
+    await transcription.recoverInterrupted()
+
     const preflight = async (): Promise<PreflightInfo> => {
       const dir = meetingsDir()
       const freeBytes = await freeDiskBytes(dir)
@@ -267,6 +295,15 @@ if (!app.requestSingleInstanceLock()) {
         preflight,
         recording: service,
         renameMeeting: async (folder, name) => {
+          if (transcription.isActive(folder)) {
+            return {
+              ok: false,
+              error: {
+                code: 'busy',
+                message: 'A Reunião está sendo transcrita. Renomeie quando terminar.'
+              }
+            }
+          }
           if (folder === service.activeFolder()) {
             return {
               ok: false,
@@ -295,13 +332,93 @@ if (!app.requestSingleInstanceLock()) {
                 }
               }
             }
-            return loadMeetingDetail(meetingsDir(), folder, service.activeFolder())
+            return loadMeetingDetail(meetingsDir(), folder, service.activeFolder(), (target) =>
+              transcription.progressFor(target)
+            )
           },
           addNote: (folder, offsetMs, text) =>
             addMeetingNote(meetingsDir(), folder, { offsetMs, text }),
           updateNote: (folder, noteId, text) =>
             editMeetingNote(meetingsDir(), folder, noteId, text),
           deleteNote: (folder, noteId) => deleteMeetingNote(meetingsDir(), folder, noteId)
+        },
+        transcript: {
+          get: async (folder) => {
+            if (!isDirectChild(meetingsDir(), folder)) {
+              return {
+                ok: false,
+                error: {
+                  code: 'invalid-request',
+                  message: 'A pasta não está dentro da pasta das Reuniões.'
+                }
+              }
+            }
+            return readTranscript(folder)
+          },
+          start: (folder, requestSummary, model) =>
+            transcription.start(folder, requestSummary === true, model),
+          renameSpeaker: async (folder, speakerId, name) => {
+            if (!isDirectChild(meetingsDir(), folder)) {
+              return {
+                ok: false,
+                error: {
+                  code: 'invalid-request',
+                  message: 'A pasta não está dentro da pasta das Reuniões.'
+                }
+              }
+            }
+            if (transcription.isActive(folder)) {
+              return {
+                ok: false,
+                error: {
+                  code: 'busy',
+                  message: 'A Reunião está sendo transcrita. Aguarde terminar.'
+                }
+              }
+            }
+            return renameTranscriptSpeaker(
+              folder,
+              String(speakerId),
+              typeof name === 'string' ? name : ''
+            )
+          },
+          cancel: (folder) => transcription.cancel(folder)
+        },
+        ai: {
+          getStatus: () => keys.status(),
+          setKey: async (provider, key) => {
+            if (!isAiProvider(provider)) {
+              return {
+                ok: false,
+                error: { code: 'invalid-request', message: 'Provedor inválido.' }
+              }
+            }
+            const saved = await keys.set(provider, key)
+            return saved.ok ? { ok: true, value: keys.status() } : saved
+          },
+          clearKey: async (provider) => {
+            if (isAiProvider(provider)) await keys.clear(provider)
+            return keys.status()
+          },
+          testKey: (provider, key) => {
+            const candidate = key ?? (isAiProvider(provider) ? keys.get(provider) : null)
+            if (!isAiProvider(provider) || !candidate) {
+              return Promise.resolve({
+                ok: false,
+                kind: 'invalid-key',
+                message: 'Cole a chave para testar.'
+              })
+            }
+            return testApiKey(provider, candidate, {
+              fetch: (input, init) => fetch(input, init),
+              geminiModel: settings.get().transcriptionModel
+            })
+          }
+        },
+        openExternal: async (url) => {
+          if (Object.values(API_KEY_LINKS).includes(url)) {
+            await shell.openExternal(url)
+          }
         },
         settings: {
           view: () => settings.view(),

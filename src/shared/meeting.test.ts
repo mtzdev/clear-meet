@@ -82,14 +82,30 @@ describe('meeting.json: ida e volta', () => {
     })
   })
 
-  it('preserva os campos reservados da Fase 5 sem interpretá-los', () => {
-    const withFuture = meeting({
-      transcript: { utterances: [{ speaker: 'Ana', offsetMs: 0, text: 'Olá' }] },
-      summary: 'resumo',
-      chat: []
-    })
+  it('preserva o Resumo e a Conversa sem interpretá-los', () => {
+    const withFuture = meeting({ summary: 'resumo', chat: [] })
     const result = parseMeeting(JSON.parse(serializeMeeting(withFuture)))
     expect(result).toEqual({ ok: true, value: withFuture })
+  })
+
+  it('lê o estado da Transcrição e ignora um bloco inválido', () => {
+    const transcript = {
+      status: 'error' as const,
+      error: 'falhou',
+      model: 'gemini-3.5-flash-lite',
+      updatedAt: '2026-10-12T10:00:00.000Z',
+      summaryRequested: true
+    }
+    const withTranscript = meeting({ transcript })
+    expect(parseMeeting(JSON.parse(serializeMeeting(withTranscript)))).toEqual({
+      ok: true,
+      value: withTranscript
+    })
+
+    const raw = JSON.parse(serializeMeeting(meeting())) as Record<string, unknown>
+    raw.transcript = { status: 'quase' }
+    const parsed = parseMeeting(raw)
+    expect(parsed.ok && parsed.value.transcript).toBeUndefined()
   })
 
   it('issues: ausente vale lista vazia (arquivos antigos); ocorrências são preservadas', () => {

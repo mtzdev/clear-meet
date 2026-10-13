@@ -42,7 +42,8 @@ describe('parseSettings', () => {
       micDeviceId: 'abc',
       noteShortcut: 'Ctrl+Alt+N',
       noteLeadSeconds: 8,
-      barPosition: { x: 120, y: -30 }
+      barPosition: { x: 120, y: -30 },
+      transcriptionModel: 'gemini-3.5-flash-lite'
     })
   })
 
