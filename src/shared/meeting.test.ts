@@ -82,10 +82,23 @@ describe('meeting.json: ida e volta', () => {
     })
   })
 
-  it('preserva o Resumo e a Conversa sem interpretá-los', () => {
-    const withFuture = meeting({ summary: 'resumo', chat: [] })
-    const result = parseMeeting(JSON.parse(serializeMeeting(withFuture)))
-    expect(result).toEqual({ ok: true, value: withFuture })
+  it('lê o estado do Resumo e ignora um bloco inválido', () => {
+    const summary = {
+      status: 'ready' as const,
+      provider: 'groq' as const,
+      model: 'openai/gpt-oss-120b',
+      updatedAt: '2026-10-13T10:00:00.000Z'
+    }
+    const withSummary = meeting({ summary })
+    expect(parseMeeting(JSON.parse(serializeMeeting(withSummary)))).toEqual({
+      ok: true,
+      value: withSummary
+    })
+
+    const raw = JSON.parse(serializeMeeting(meeting())) as Record<string, unknown>
+    raw.summary = 'resumo'
+    const parsed = parseMeeting(raw)
+    expect(parsed.ok && parsed.value.summary).toBeUndefined()
   })
 
   it('lê o estado da Transcrição e ignora um bloco inválido', () => {

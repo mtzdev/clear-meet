@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { isTranscriptionModel } from '@shared/ai'
+import { isTranscriptionModel, transcriptionEngine } from '@shared/ai'
 import type { MeetingFile } from '@shared/meeting'
 import type { RecordingError, Result } from '@shared/recording'
 import {
@@ -25,12 +25,19 @@ import {
   type PartialChunk
 } from '../../meetings/transcript-store'
 import { AI_MESSAGES, AiError, isAiError, isFatalKind } from '../errors'
-import type { GeminiFile, GenerateRequest, GenerateResult } from '../gemini'
+import type {
+  GeminiFile,
+  GenerateRequest,
+  GenerateResult,
+  TranscribeRequest,
+  TranscribeResult
+} from '../gemini'
 import { ChunkParseError, parseChunkResponse } from './parse'
 import { chunkDurationMs, matchesPlan, planChunks, type ChunkPlan } from './plan'
 import { buildTranscriptionPrompt, TRANSCRIPT_RESPONSE_SCHEMA } from './prompt'
 import { finalizeUtterances, mergeChunks, speakersOf, type ChunkResult } from './reconcile'
 import { CHUNK_MIME_TYPE, extractChunk } from './split'
+import { groupWords } from './words'
 
 /** O que o pipeline usa do cliente do Gemini (permite testar sem rede). */
 export interface AiClient {
@@ -41,6 +48,7 @@ export interface AiClient {
   waitUntilActive(file: GeminiFile, signal?: AbortSignal): Promise<GeminiFile>
   deleteFile(name: string): Promise<void>
   generate(request: GenerateRequest, signal?: AbortSignal): Promise<GenerateResult>
+  transcribe(request: TranscribeRequest, signal?: AbortSignal): Promise<TranscribeResult>
 }
 
 export interface TranscriptionDeps {
@@ -51,6 +59,8 @@ export interface TranscriptionDeps {
   createClient(apiKey: string): AiClient
   tempRoot: string
   emit(event: TranscriptChangedEvent): void
+  /** Chamado quando uma Transcrição termina; `summaryRequested` é o "Transcrever + resumir". */
+  onReady?(folder: string, summaryRequested: boolean): void
   now(): number
   log(message: string): void
   /** Blocos transcritos ao mesmo tempo (depois do primeiro). */
@@ -226,6 +236,11 @@ export class TranscriptionService {
         updatedAt: new Date(this.deps.now()).toISOString(),
         ...(job.meta.summaryRequested ? { summaryRequested: true } : {})
       })
+      try {
+        this.deps.onReady?.(job.folder, job.meta.summaryRequested === true)
+      } catch (error) {
+        this.deps.log(`[transcrição] gancho de conclusão falhou: ${describe(error)}`)
+      }
     } catch (error) {
       if (job.controller.signal.aborted) {
         await removePartial(job.folder).catch(() => undefined)
@@ -258,7 +273,7 @@ export class TranscriptionService {
     const audioPath = join(folder, (meeting.audio as { file: string }).file)
 
     const durationMs = (await this.measureDuration(tools, audioPath)) ?? meeting.durationMs ?? 0
-    const plans = planChunks(durationMs)
+    const plans = planChunks(durationMs, transcriptionEngine(model))
     if (plans.length === 0) throw new UserFacingError('O áudio desta Reunião está vazio.')
 
     const results = new Map<number, ChunkResult>()
@@ -413,6 +428,21 @@ export class TranscriptionService {
         signal
       )
       const file = await client.waitUntilActive(uploaded, signal)
+      if (transcriptionEngine(input.model) === 'transcribe') {
+        const { words } = await client.transcribe(
+          { model: input.model, fileUri: file.uri, mimeType: file.mimeType },
+          signal
+        )
+        const utterances = groupWords(words, {
+          chunkDurationMs: chunkDurationMs(plan),
+          speakerBase: plan.index * 100
+        })
+        const voices = new Set(utterances.map((u) => u.speaker)).size
+        this.deps.log(
+          `[transcrição] bloco ${plan.index + 1}: ${utterances.length} Falas, ${voices} Falantes`
+        )
+        return utterances
+      }
       const prompt = buildTranscriptionPrompt({
         chunkIndex: plan.index,
         chunkCount: input.plans.length,

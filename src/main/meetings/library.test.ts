@@ -150,6 +150,29 @@ describe('loadMeetingDetail', () => {
     expect(result.value.notes.map((entry) => entry.id)).toEqual(['a', 'b'])
   })
 
+  it('o estado do Resumo aparece no detalhe e na lista ("Resumindo…")', async () => {
+    const summary = {
+      status: 'running' as const,
+      updatedAt: '2026-10-13T13:00:00.000Z'
+    }
+    const folder = await create('resumindo', { summary })
+    await create('sem-resumo', { id: 'outro', createdAt: '2026-10-09T10:00:00.000Z' })
+
+    const detail = await loadMeetingDetail(root, folder, null)
+    expect(detail.ok && detail.value.summary).toEqual({
+      status: 'running',
+      error: null,
+      provider: null,
+      model: null,
+      updatedAt: '2026-10-13T13:00:00.000Z'
+    })
+    const list = await listMeetings(root, null)
+    expect(list.items.map((item) => [item.id, item.summaryStatus])).toEqual([
+      ['id-1', 'running'],
+      ['outro', 'none']
+    ])
+  })
+
   it('sem video.mp4 no disco (ou Reunião só de áudio) só há o Áudio da reunião', async () => {
     const folder = await create('so-audio', { video: null, source: { kind: 'none', name: null } }, [
       'audio.opus'

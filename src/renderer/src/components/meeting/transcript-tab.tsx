@@ -77,7 +77,7 @@ export function TranscriptTab({
       title="A Transcrição ainda não foi gerada"
       description={
         unavailable ??
-        'Ela mostra as falas de cada Falante, cada uma com o Instante em que foi dita. O áudio é enviado ao Gemini com a sua chave.'
+        'Mostra o que cada Falante disse e quando. O áudio é enviado ao Gemini com a sua chave.'
       }
       action={
         unavailable ? undefined : hasKey ? (

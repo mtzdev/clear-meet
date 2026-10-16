@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -22,9 +23,14 @@ import {
   type PreflightInfo,
   type RecordingState
 } from '@shared/recording'
+import { ChatService } from './ai/chat/service'
 import { GeminiClient } from './ai/gemini'
 import { KeyStore } from './ai/keys'
+import { OpenAiCompatClient } from './ai/openai-compat'
+import { SummaryService } from './ai/summary/service'
 import { testApiKey } from './ai/test-key'
+import { geminiBackend, groqBackend } from './ai/text/backends'
+import { TextRouter } from './ai/text/router'
 import { TranscriptionService } from './ai/transcription/service'
 import { getFfmpegStatus, type StatusOptions } from './ffmpeg'
 import { resolveFfmpegTools } from './ffmpeg/media'
@@ -41,6 +47,7 @@ import { createMediaHandler } from './media/handler'
 import { findMeetingFolder, listMeetings, loadMeetingDetail } from './meetings/library'
 import { addMeetingNote, deleteMeetingNote, editMeetingNote } from './meetings/notes-store'
 import { isDirectChild, renameMeeting } from './meetings/repository'
+import { readSummary } from './meetings/summary-store'
 import { readTranscript, renameTranscriptSpeaker } from './meetings/transcript-store'
 import { RecoveryService } from './recording/recovery-service'
 import { createRecorderSessionFactory, recorderPaths } from './recording/recorder-window'
@@ -262,6 +269,32 @@ if (!app.requestSingleInstanceLock()) {
       log
     })
 
+    const textRouter = new TextRouter({
+      groqKey: () => keys.get('groq'),
+      geminiKey: () => keys.get('gemini'),
+      groqModel: () => settings.get().groqTextModel,
+      geminiModel: () => settings.get().geminiTextModel,
+      createGroq: (key) => groqBackend(new OpenAiCompatClient(key, { log })),
+      createGemini: (key) => geminiBackend(new GeminiClient(key, { log })),
+      log
+    })
+    const summary = new SummaryService({
+      meetingsDir,
+      router: textRouter,
+      emit: (event) => sendToRenderer('summary:changed', event),
+      now: () => Date.now(),
+      log
+    })
+    await summary.recoverInterrupted()
+    const chat = new ChatService({
+      meetingsDir,
+      router: textRouter,
+      emit: (event) => sendToRenderer('chat:event', event),
+      now: () => Date.now(),
+      newId: () => randomUUID(),
+      log
+    })
+
     const transcription = new TranscriptionService({
       meetingsDir,
       getTools,
@@ -270,6 +303,9 @@ if (!app.requestSingleInstanceLock()) {
       createClient: (key) => new GeminiClient(key, { log }),
       tempRoot: tmpdir(),
       emit: (event) => sendToRenderer('transcript:changed', event),
+      onReady: (folder, summaryRequested) => {
+        if (summaryRequested) void summary.startAfterTranscript(folder)
+      },
       now: () => Date.now(),
       log
     })
@@ -301,6 +337,15 @@ if (!app.requestSingleInstanceLock()) {
               error: {
                 code: 'busy',
                 message: 'A Reunião está sendo transcrita. Renomeie quando terminar.'
+              }
+            }
+          }
+          if (summary.isActive(folder) || chat.isActive(folder)) {
+            return {
+              ok: false,
+              error: {
+                code: 'busy',
+                message: 'A IA está trabalhando nesta Reunião. Renomeie quando terminar.'
               }
             }
           }
@@ -383,6 +428,28 @@ if (!app.requestSingleInstanceLock()) {
             )
           },
           cancel: (folder) => transcription.cancel(folder)
+        },
+        summary: {
+          get: async (folder) => {
+            if (!isDirectChild(meetingsDir(), folder)) {
+              return {
+                ok: false,
+                error: {
+                  code: 'invalid-request',
+                  message: 'A pasta não está dentro da pasta das Reuniões.'
+                }
+              }
+            }
+            return readSummary(folder)
+          },
+          start: (folder) => summary.start(folder),
+          cancel: (folder) => summary.cancel(folder)
+        },
+        chat: {
+          get: (folder) => chat.get(folder),
+          send: (folder, text) => chat.send(folder, typeof text === 'string' ? text : null),
+          stop: (folder) => chat.stop(folder),
+          clear: (folder) => chat.clear(folder)
         },
         ai: {
           getStatus: () => keys.status(),

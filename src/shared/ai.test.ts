@@ -4,6 +4,7 @@ import {
   isAiProvider,
   isTranscriptionModel,
   normalizeApiKey,
+  transcriptionEngine,
   TRANSCRIPTION_MODELS
 } from './ai'
 import { applySettingsPatch, DEFAULT_SETTINGS, parseSettings } from './settings'
@@ -26,6 +27,14 @@ describe('modelos e provedores', () => {
     expect(isTranscriptionModel('gpt-4')).toBe(false)
     expect(isAiProvider('groq')).toBe(true)
     expect(isAiProvider('openai')).toBe(false)
+  })
+
+  it('cada modelo declara o motor; o dedicado não é o padrão e desconhecido cai no geral', () => {
+    expect(transcriptionEngine('gemini-3.5-transcribe')).toBe('transcribe')
+    expect(isTranscriptionModel('gemini-3.5-transcribe')).toBe(true)
+    expect(DEFAULT_TRANSCRIPTION_MODEL).not.toBe('gemini-3.5-transcribe')
+    expect(transcriptionEngine(DEFAULT_TRANSCRIPTION_MODEL)).toBe('generate')
+    expect(transcriptionEngine('desconhecido')).toBe('generate')
   })
 
   it('a configuração do modelo é validada ao ler e ao aplicar um patch', () => {

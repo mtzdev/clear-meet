@@ -1,4 +1,5 @@
 import type { AiProvider, AiStatus, KeyTestResult } from './ai'
+import type { ChatEvent, ChatSent, ChatState } from './chat'
 import type { FfmpegStatus } from './ffmpeg'
 import type { FloatingInfo, NoteSavedEvent } from './floating'
 import type { MeetingDetail, MeetingList } from './library'
@@ -15,6 +16,7 @@ import type {
   StartRecordingRequest
 } from './recording'
 import type { SettingsPatch, SettingsView } from './settings'
+import type { SummaryChangedEvent, SummaryFile } from './summary'
 import type { TranscriptChangedEvent, TranscriptFile } from './transcript'
 
 /**
@@ -68,6 +70,18 @@ export interface IpcContract {
     request: { folder: string; speakerId: string; name: string }
     response: Result<TranscriptFile>
   }
+  /** Resumo pronto (`summary.json`), ou `null` se a Reunião ainda não tem. */
+  'summary:get': { request: { folder: string }; response: Result<SummaryFile | null> }
+  /** Gera o Resumo em segundo plano (ou refaz o que existe); o andamento vem por evento. */
+  'summary:start': { request: { folder: string }; response: Result<null> }
+  'summary:cancel': { request: { folder: string }; response: null }
+  /** Conversa da Reunião: mensagens salvas e a resposta em geração, se houver. */
+  'chat:get': { request: { folder: string }; response: Result<ChatState> }
+  /** Faz uma pergunta; `text: null` repete a última pergunta que ficou sem resposta. */
+  'chat:send': { request: { folder: string; text: string | null }; response: Result<ChatSent> }
+  /** Para a resposta em geração (o que já chegou fica salvo). */
+  'chat:stop': { request: { folder: string }; response: null }
+  'chat:clear': { request: { folder: string }; response: Result<null> }
   /** Chaves de IA: o renderer só vê "configurada" e os últimos 4 caracteres. */
   'ai:getStatus': { request: void; response: AiStatus }
   'ai:setKey': { request: { provider: AiProvider; key: string }; response: Result<AiStatus> }
@@ -108,6 +122,10 @@ export interface IpcEventContract {
   'notes:opened': null
   /** O estado ou o progresso da Transcrição de uma Reunião mudou. */
   'transcript:changed': TranscriptChangedEvent
+  /** O estado do Resumo de uma Reunião mudou. */
+  'summary:changed': SummaryChangedEvent
+  /** Resposta da Conversa chegando, concluída ou com erro. */
+  'chat:event': ChatEvent
 }
 
 export type IpcEventName = keyof IpcEventContract
@@ -158,6 +176,13 @@ export const IPC_CHANNELS = {
   'transcript:start': true,
   'transcript:cancel': true,
   'transcript:renameSpeaker': true,
+  'summary:get': true,
+  'summary:start': true,
+  'summary:cancel': true,
+  'chat:get': true,
+  'chat:send': true,
+  'chat:stop': true,
+  'chat:clear': true,
   'ai:getStatus': true,
   'ai:setKey': true,
   'ai:clearKey': true,
@@ -183,7 +208,9 @@ export const IPC_EVENTS = {
   'floating:info': true,
   'notes:saved': true,
   'notes:opened': true,
-  'transcript:changed': true
+  'transcript:changed': true,
+  'summary:changed': true,
+  'chat:event': true
 } as const satisfies Record<IpcEventName, true>
 
 export function isIpcEvent(value: unknown): value is IpcEventName {

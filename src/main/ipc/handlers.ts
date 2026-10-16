@@ -1,4 +1,5 @@
 import type { AiProvider, AiStatus, KeyTestResult } from '@shared/ai'
+import type { ChatSent, ChatState } from '@shared/chat'
 import type { FfmpegStatus } from '@shared/ffmpeg'
 import type { FloatingInfo } from '@shared/floating'
 import type { IpcHandlers } from '@shared/ipc'
@@ -15,6 +16,7 @@ import type {
   StartRecordingRequest
 } from '@shared/recording'
 import type { SettingsPatch, SettingsView } from '@shared/settings'
+import type { SummaryFile } from '@shared/summary'
 import type { TranscriptFile } from '@shared/transcript'
 
 /** Dependências dos handlers; no app vêm do Electron e dos serviços do main. */
@@ -45,6 +47,17 @@ export interface HandlerDeps {
     start(folder: string, requestSummary: boolean, model?: string): Promise<Result<null>>
     renameSpeaker(folder: string, speakerId: string, name: string): Promise<Result<TranscriptFile>>
     cancel(folder: string): void
+  }
+  summary: {
+    get(folder: string): Promise<Result<SummaryFile | null>>
+    start(folder: string): Promise<Result<null>>
+    cancel(folder: string): void
+  }
+  chat: {
+    get(folder: string): Promise<Result<ChatState>>
+    send(folder: string, text: string | null): Promise<Result<ChatSent>>
+    stop(folder: string): void
+    clear(folder: string): Promise<Result<null>>
   }
   ai: {
     getStatus(): AiStatus
@@ -109,6 +122,19 @@ export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
       deps.transcript.cancel(request.folder)
       return null
     },
+    'summary:get': (request) => deps.summary.get(request.folder),
+    'summary:start': (request) => deps.summary.start(request.folder),
+    'summary:cancel': (request) => {
+      deps.summary.cancel(request.folder)
+      return null
+    },
+    'chat:get': (request) => deps.chat.get(request.folder),
+    'chat:send': (request) => deps.chat.send(request.folder, request.text),
+    'chat:stop': (request) => {
+      deps.chat.stop(request.folder)
+      return null
+    },
+    'chat:clear': (request) => deps.chat.clear(request.folder),
     'ai:getStatus': () => deps.ai.getStatus(),
     'ai:setKey': (request) => deps.ai.setKey(request.provider, request.key),
     'ai:clearKey': (request) => deps.ai.clearKey(request.provider),

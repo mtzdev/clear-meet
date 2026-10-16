@@ -12,7 +12,14 @@ import {
 import { readMeeting } from '../../meetings/repository'
 import { readTranscript } from '../../meetings/transcript-store'
 import { AiError } from '../errors'
-import type { GeminiFile, GenerateRequest, GenerateResult } from '../gemini'
+import type {
+  GeminiFile,
+  GenerateRequest,
+  GenerateResult,
+  TranscribedWord,
+  TranscribeRequest,
+  TranscribeResult
+} from '../gemini'
 import { TranscriptionService, type AiClient, type TranscriptionDeps } from './service'
 
 const MIN = 60_000
@@ -58,6 +65,16 @@ const reply = (
   }
 }
 
+/** Palavras de um Falante, uma a cada 0,3 s a partir de `startSec`. */
+function words(speaker: string, startSec: number, ...texts: string[]): TranscribedWord[] {
+  return texts.map((text, index) => ({
+    text,
+    speaker,
+    startMs: Math.round((startSec + index * 0.3) * 1000),
+    endMs: Math.round((startSec + index * 0.3 + 0.25) * 1000)
+  }))
+}
+
 interface FakeOptions {
   generate?: (
     request: GenerateRequest,
@@ -65,16 +82,24 @@ interface FakeOptions {
     signal?: AbortSignal
   ) => Promise<GenerateResult>
   upload?: (chunk: number) => Promise<void>
+  transcribe?: (request: TranscribeRequest, chunk: number) => Promise<TranscribeResult>
 }
 
 /** Cliente falso: o número do bloco viaja no nome do arquivo (`...-N`) e no `uri`. */
 function fakeClient(options: FakeOptions = {}) {
   const generated: { request: GenerateRequest; chunk: number }[] = []
+  const transcribed: { request: TranscribeRequest; chunk: number }[] = []
   const uploads: string[] = []
   const deleted: string[] = []
   let running = 0
   let maxRunning = 0
   const client: AiClient = {
+    transcribe: async (request) => {
+      const chunk = Number(request.fileUri.split('-')[1])
+      transcribed.push({ request, chunk })
+      if (options.transcribe) return await options.transcribe(request, chunk)
+      return { words: words('spk_1', 40, 'fala', `do`, `bloco`, String(chunk)) }
+    },
     uploadFile: async (input) => {
       const chunk = Number(input.displayName.split('-').at(-1)) - 1
       await options.upload?.(chunk)
@@ -107,7 +132,7 @@ function fakeClient(options: FakeOptions = {}) {
       }
     }
   }
-  return { client, generated, uploads, deleted, maxRunning: () => maxRunning }
+  return { client, generated, transcribed, uploads, deleted, maxRunning: () => maxRunning }
 }
 
 let root: string
@@ -222,6 +247,55 @@ describe('TranscriptionService: Reunião curta', () => {
     expect(events.map((e) => e.view.status)).toContain('running')
     expect(events.at(-1)?.view).toMatchObject({ status: 'ready', summaryRequested: true })
     expect(events.every((e) => e.meetingId === 'meeting-1234567890')).toBe(true)
+  })
+
+  it('"Transcrever + resumir": ao terminar, avisa o gancho para gerar o Resumo', async () => {
+    await writeMeetingFile(meeting())
+    const ready: [string, boolean][] = []
+    const service = makeService(fakeClient().client, {
+      onReady: (readyFolder, summaryRequested) => ready.push([readyFolder, summaryRequested])
+    })
+    await service.start(folder, true)
+    await settled(service)
+    expect(ready).toEqual([[folder, true]])
+    // O gancho só dispara com a Transcrição já gravada como pronta.
+    expect((await saved()).transcript?.status).toBe('ready')
+  })
+
+  it('"Só transcrever": o gancho avisa que o Resumo não foi pedido', async () => {
+    await writeMeetingFile(meeting())
+    const ready: [string, boolean][] = []
+    const service = makeService(fakeClient().client, {
+      onReady: (readyFolder, summaryRequested) => ready.push([readyFolder, summaryRequested])
+    })
+    await service.start(folder, false)
+    await settled(service)
+    expect(ready).toEqual([[folder, false]])
+  })
+
+  it('o gancho não dispara se a Transcrição falha nem se é cancelada', async () => {
+    await writeMeetingFile(meeting())
+    const ready: boolean[] = []
+    const failing = fakeClient({
+      generate: () => Promise.reject(new AiError('invalid-key', 'A chave foi recusada.'))
+    })
+    const service = makeService(failing.client, { onReady: () => ready.push(true) })
+    await service.start(folder, true)
+    await settled(service)
+    expect((await saved()).transcript?.status).toBe('error')
+    expect(ready).toEqual([])
+  })
+
+  it('um gancho que lança não estraga a Transcrição pronta', async () => {
+    await writeMeetingFile(meeting())
+    const service = makeService(fakeClient().client, {
+      onReady: () => {
+        throw new Error('falha no gancho')
+      }
+    })
+    await service.start(folder, true)
+    await settled(service)
+    expect((await saved()).transcript?.status).toBe('ready')
   })
 
   it('o prompt pede JSON estruturado e o modelo escolhido é o usado', async () => {
@@ -455,6 +529,115 @@ describe('TranscriptionService: modelo e Falantes', () => {
     const result = await readTranscript(folder)
     expect(result.ok && result.value?.speakers).toEqual([{ id: 's1', name: 'Ana' }])
     expect(result.ok && result.value?.utterances).toHaveLength(3)
+  })
+})
+
+describe('TranscriptionService: modelo dedicado de transcrição', () => {
+  const MODEL = 'gemini-3.5-transcribe'
+
+  it('usa o motor transcribe: sem prompt nem JSON, e as palavras viram Falas com Falantes', async () => {
+    await writeMeetingFile(meeting())
+    const fake = fakeClient({
+      transcribe: () =>
+        Promise.resolve({
+          words: [
+            ...words('spk_1', 5, 'Bom', 'dia,', 'pessoal.'),
+            ...words('spk_2', 12, 'Bom', 'dia!')
+          ]
+        })
+    })
+    const service = makeService(fake.client, { model: () => MODEL })
+    await service.start(folder, false)
+    await settled(service)
+
+    expect(fake.generated).toHaveLength(0)
+    expect(fake.transcribed).toHaveLength(1)
+    expect(fake.transcribed[0]?.request).toEqual({
+      model: MODEL,
+      fileUri: 'uri-0',
+      mimeType: 'audio/ogg'
+    })
+    const transcript = await readTranscript(folder)
+    expect(transcript).toMatchObject({
+      ok: true,
+      value: {
+        model: MODEL,
+        speakers: [
+          { id: 's1', name: null },
+          { id: 's2', name: null }
+        ],
+        utterances: [
+          { speakerId: 's1', startMs: 5000, text: 'Bom dia, pessoal.' },
+          { speakerId: 's2', startMs: 12_000, text: 'Bom dia!' }
+        ]
+      }
+    })
+    expect((await saved()).transcript?.status).toBe('ready')
+    expect(fake.deleted).toEqual(['files/0'])
+  })
+
+  it('Reunião de 56 min vira 3 blocos de até 25 min e as emendas não repetem Falas', async () => {
+    await writeMeetingFile(meeting({ durationMs: 56 * MIN }))
+    const fake = fakeClient()
+    const service = makeService(fake.client, { model: () => MODEL, durationMs: 56 * MIN })
+    await service.start(folder, false)
+    await settled(service)
+
+    expect(fake.transcribed.map((t) => t.chunk).sort()).toEqual([0, 1, 2])
+    const transcript = await readTranscript(folder)
+    expect(transcript.ok && transcript.value?.utterances).toHaveLength(3)
+    // Todos os blocos falam como "Falante 1", mas sem evidência na sobreposição ficam como vozes distintas.
+    expect(transcript.ok && transcript.value?.speakers).toHaveLength(3)
+  })
+
+  it('erro de falta de separação de vozes aparece para o usuário e apaga o upload', async () => {
+    await writeMeetingFile(meeting())
+    const fake = fakeClient({
+      transcribe: () =>
+        Promise.reject(new AiError('bad-response', 'O modelo não devolveu a separação de vozes.'))
+    })
+    const service = makeService(fake.client, { model: () => MODEL })
+    await service.start(folder, false)
+    await settled(service)
+
+    expect((await saved()).transcript).toMatchObject({
+      status: 'error',
+      error: 'O modelo não devolveu a separação de vozes.'
+    })
+    expect(fake.deleted).toEqual(['files/0'])
+    expect(await exists(TRANSCRIPT_FILE)).toBe(false)
+  })
+
+  it('"Tentar com outro modelo" alterna entre os motores', async () => {
+    await writeMeetingFile(meeting())
+    const fake = fakeClient()
+    const service = makeService(fake.client)
+    await service.start(folder, false, MODEL)
+    await settled(service)
+    expect(fake.transcribed).toHaveLength(1)
+    await service.start(folder, false, 'gemini-3.5-flash-lite')
+    await settled(service)
+    expect(fake.generated).toHaveLength(1)
+  })
+
+  it('cancelar durante a transcrição apaga o upload', async () => {
+    await writeMeetingFile(meeting())
+    let started!: () => void
+    const reached = new Promise<void>((resolve) => (started = resolve))
+    const fake = fakeClient({
+      transcribe: () =>
+        new Promise((_resolve, reject) => {
+          started()
+          setTimeout(() => reject(new AiError('cancelled', 'Cancelado.')), 20)
+        })
+    })
+    const service = makeService(fake.client, { model: () => MODEL })
+    await service.start(folder, false)
+    await reached
+    service.cancel(folder)
+    await settled(service)
+    expect((await saved()).transcript).toBeUndefined()
+    expect(fake.deleted).toEqual(['files/0'])
   })
 })
 

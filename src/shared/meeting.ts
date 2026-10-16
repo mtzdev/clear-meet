@@ -1,4 +1,5 @@
 import { isQualityPreset, type QualityPreset } from './capture'
+import { parseSummaryMeta, type SummaryMeta } from './summary'
 import { parseTranscriptMeta, type TranscriptMeta } from './transcript'
 
 /**
@@ -82,9 +83,8 @@ export interface MeetingFile {
   issues: MeetingIssue[]
   /** Estado da Transcrição; as Falas ficam em `transcript.json`, na mesma pasta. */
   transcript?: TranscriptMeta
-  /** Reservados para o Resumo e a Conversa: preservados como estão. */
-  summary?: unknown
-  chat?: unknown
+  /** Estado do Resumo; o conteúdo fica em `summary.json`, e a Conversa em `chat.json`. */
+  summary?: SummaryMeta
 }
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string }
@@ -245,9 +245,8 @@ export function parseMeeting(raw: unknown): ParseResult<MeetingFile> {
   }
   const transcript = parseTranscriptMeta(raw.transcript)
   if (transcript) meeting.transcript = transcript
-  for (const key of ['summary', 'chat'] as const) {
-    if (raw[key] !== undefined) meeting[key] = raw[key]
-  }
+  const summary = parseSummaryMeta(raw.summary)
+  if (summary) meeting.summary = summary
   return { ok: true, value: meeting }
 }
 

@@ -10,9 +10,18 @@ import { useIpcQuery } from '@/lib/ipc'
 import { SOURCE_KIND_LABEL, statusLabel } from '@/lib/meeting-text'
 import { meetingHref } from '@/lib/router'
 import type { MeetingListItem } from '@shared/library'
+import type { SummaryStatus } from '@shared/summary'
 import type { TranscriptStatus } from '@shared/transcript'
 
-function MeetingRow({ item, transcript }: { item: MeetingListItem; transcript: TranscriptStatus }) {
+function MeetingRow({
+  item,
+  transcript,
+  summary
+}: {
+  item: MeetingListItem
+  transcript: TranscriptStatus
+  summary: SummaryStatus
+}) {
   const status = statusLabel(item.status, item.live)
   const details = [
     formatDateTime(item.createdAt),
@@ -46,6 +55,12 @@ function MeetingRow({ item, transcript }: { item: MeetingListItem; transcript: T
             Transcrevendo…
           </Badge>
         )}
+        {summary === 'running' && (
+          <Badge variant="outline" className="shrink-0">
+            <LoaderCircle className="animate-spin" aria-hidden />
+            Resumindo…
+          </Badge>
+        )}
         {transcript === 'error' && (
           <Badge variant="outline" className="text-warning shrink-0">
             Transcrição interrompida
@@ -67,10 +82,18 @@ export function MeetingsScreen() {
   const query = useIpcQuery('meetings:list')
   // Estados de Transcrição que mudaram depois de a lista ser lida.
   const [transcripts, setTranscripts] = useState<Record<string, TranscriptStatus>>({})
+  const [summaries, setSummaries] = useState<Record<string, SummaryStatus>>({})
   useEffect(
     () =>
       window.api.on('transcript:changed', (event) => {
         setTranscripts((current) => ({ ...current, [event.meetingId]: event.view.status }))
+      }),
+    []
+  )
+  useEffect(
+    () =>
+      window.api.on('summary:changed', (event) => {
+        setSummaries((current) => ({ ...current, [event.meetingId]: event.view.status }))
       }),
     []
   )
@@ -112,6 +135,7 @@ export function MeetingsScreen() {
                 key={item.id}
                 item={item}
                 transcript={transcripts[item.id] ?? item.transcriptStatus}
+                summary={summaries[item.id] ?? item.summaryStatus}
               />
             ))}
           </ul>

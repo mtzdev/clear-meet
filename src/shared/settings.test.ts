@@ -43,8 +43,22 @@ describe('parseSettings', () => {
       noteShortcut: 'Ctrl+Alt+N',
       noteLeadSeconds: 8,
       barPosition: { x: 120, y: -30 },
-      transcriptionModel: 'gemini-3.5-flash-lite'
+      transcriptionModel: 'gemini-3.5-flash-lite',
+      groqTextModel: 'openai/gpt-oss-120b',
+      geminiTextModel: 'gemini-3.5-flash-lite'
     })
+  })
+
+  it('modelos de texto: aceita os conhecidos e volta ao padrão nos desconhecidos', () => {
+    const chosen = parseSettings({
+      groqTextModel: 'llama-3.3-70b-versatile',
+      geminiTextModel: 'gemini-3.6-flash'
+    })
+    expect(chosen.groqTextModel).toBe('llama-3.3-70b-versatile')
+    expect(chosen.geminiTextModel).toBe('gemini-3.6-flash')
+    const unknown = parseSettings({ groqTextModel: 'inventado', geminiTextModel: 42 })
+    expect(unknown.groqTextModel).toBe(DEFAULT_SETTINGS.groqTextModel)
+    expect(unknown.geminiTextModel).toBe(DEFAULT_SETTINGS.geminiTextModel)
   })
 
   it('Anotações: atalho padrão Ctrl+Shift+Space, recuo de 5 s e barra no topo-centro', () => {
@@ -74,6 +88,17 @@ describe('parseSettings', () => {
 })
 
 describe('applySettingsPatch', () => {
+  it('troca os modelos de texto e ignora valores desconhecidos', () => {
+    const next = applySettingsPatch(DEFAULT_SETTINGS, {
+      groqTextModel: 'openai/gpt-oss-20b',
+      geminiTextModel: 'gemini-3.6-flash'
+    })
+    expect(next.groqTextModel).toBe('openai/gpt-oss-20b')
+    expect(next.geminiTextModel).toBe('gemini-3.6-flash')
+    const ignored = applySettingsPatch(next, { groqTextModel: 'x', geminiTextModel: 'y' })
+    expect(ignored).toEqual(next)
+  })
+
   it('altera qualidade e microfone, ignorando valores inválidos', () => {
     const next = applySettingsPatch(DEFAULT_SETTINGS, { quality: 'native', micDeviceId: 'xyz' })
     expect(next).toEqual({ ...DEFAULT_SETTINGS, quality: 'native', micDeviceId: 'xyz' })

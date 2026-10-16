@@ -12,7 +12,8 @@ function item(folder: string, createdAt: string): MeetingListItem {
     live: false,
     source: { kind: 'none', name: null },
     noteCount: 0,
-    transcriptStatus: 'none'
+    transcriptStatus: 'none',
+    summaryStatus: 'none'
   }
 }
 

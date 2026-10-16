@@ -9,6 +9,7 @@ import {
 } from '@shared/library'
 import { MEETING_FILES, type MeetingFile } from '@shared/meeting'
 import type { RecordingError, Result } from '@shared/recording'
+import { makeSummaryView } from '@shared/summary'
 import { makeTranscriptView, type TranscriptProgress } from '@shared/transcript'
 import { sameFolder } from './paths'
 import { isDirectChild, listMeetingFolders, MEETING_NOT_FOUND, readMeeting } from './repository'
@@ -28,7 +29,8 @@ export function toListItem(folder: string, meeting: MeetingFile, live: boolean):
     live,
     source: meeting.source,
     noteCount: meeting.notes.length,
-    transcriptStatus: meeting.transcript?.status ?? 'none'
+    transcriptStatus: meeting.transcript?.status ?? 'none',
+    summaryStatus: meeting.summary?.status ?? 'none'
   }
 }
 
@@ -118,7 +120,8 @@ export async function loadMeetingDetail(
       notes: [...meeting.notes].sort((a, b) => a.offsetMs - b.offsetMs),
       issues: meeting.issues,
       lock: lockFor(meeting.status, live),
-      transcript: makeTranscriptView(meeting.transcript, transcriptProgress(folder))
+      transcript: makeTranscriptView(meeting.transcript, transcriptProgress(folder)),
+      summary: makeSummaryView(meeting.summary)
     }
   }
 }

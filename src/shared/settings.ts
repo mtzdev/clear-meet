@@ -1,4 +1,11 @@
-import { DEFAULT_TRANSCRIPTION_MODEL, isTranscriptionModel } from './ai'
+import {
+  DEFAULT_GEMINI_TEXT_MODEL,
+  DEFAULT_GROQ_TEXT_MODEL,
+  DEFAULT_TRANSCRIPTION_MODEL,
+  isGeminiTextModel,
+  isGroqTextModel,
+  isTranscriptionModel
+} from './ai'
 import { DEFAULT_QUALITY, isQualityPreset, type QualityPreset } from './capture'
 import type { Point } from './floating'
 import { DEFAULT_NOTE_LEAD_SECONDS, DEFAULT_NOTE_SHORTCUT, MAX_NOTE_LEAD_SECONDS } from './notes'
@@ -45,6 +52,10 @@ export interface AppSettings {
   barPosition: Point | null
   /** Modelo do Gemini que gera a Transcrição. */
   transcriptionModel: string
+  /** Modelo da Groq para o Resumo e a Conversa (usado quando há chave da Groq). */
+  groqTextModel: string
+  /** Modelo do Gemini para o Resumo e a Conversa (sem chave da Groq, ou como reserva). */
+  geminiTextModel: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -56,7 +67,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   noteShortcut: DEFAULT_NOTE_SHORTCUT,
   noteLeadSeconds: DEFAULT_NOTE_LEAD_SECONDS,
   barPosition: null,
-  transcriptionModel: DEFAULT_TRANSCRIPTION_MODEL
+  transcriptionModel: DEFAULT_TRANSCRIPTION_MODEL,
+  groqTextModel: DEFAULT_GROQ_TEXT_MODEL,
+  geminiTextModel: DEFAULT_GEMINI_TEXT_MODEL
 }
 
 export const SETTINGS_SCHEMA_VERSION = 1
@@ -68,7 +81,10 @@ export interface SettingsView extends AppSettings {
 
 /** O que a UI pode alterar nesta fase. */
 export type SettingsPatch = Partial<
-  Pick<AppSettings, 'quality' | 'micDeviceId' | 'transcriptionModel'>
+  Pick<
+    AppSettings,
+    'quality' | 'micDeviceId' | 'transcriptionModel' | 'groqTextModel' | 'geminiTextModel'
+  >
 >
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -119,7 +135,13 @@ export function parseSettings(raw: unknown): AppSettings {
     barPosition: parseBarPosition(raw.barPosition),
     transcriptionModel: isTranscriptionModel(raw.transcriptionModel)
       ? raw.transcriptionModel
-      : DEFAULT_SETTINGS.transcriptionModel
+      : DEFAULT_SETTINGS.transcriptionModel,
+    groqTextModel: isGroqTextModel(raw.groqTextModel)
+      ? raw.groqTextModel
+      : DEFAULT_SETTINGS.groqTextModel,
+    geminiTextModel: isGeminiTextModel(raw.geminiTextModel)
+      ? raw.geminiTextModel
+      : DEFAULT_SETTINGS.geminiTextModel
   }
 }
 
@@ -133,6 +155,12 @@ export function applySettingsPatch(current: AppSettings, patch: SettingsPatch): 
   }
   if (patch.transcriptionModel !== undefined && isTranscriptionModel(patch.transcriptionModel)) {
     next.transcriptionModel = patch.transcriptionModel
+  }
+  if (patch.groqTextModel !== undefined && isGroqTextModel(patch.groqTextModel)) {
+    next.groqTextModel = patch.groqTextModel
+  }
+  if (patch.geminiTextModel !== undefined && isGeminiTextModel(patch.geminiTextModel)) {
+    next.geminiTextModel = patch.geminiTextModel
   }
   return next
 }

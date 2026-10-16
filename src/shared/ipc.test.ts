@@ -30,6 +30,10 @@ describe('contrato de IPC', () => {
       'app:getVersion',
       'app:openExternal',
       'capture:listSources',
+      'chat:clear',
+      'chat:get',
+      'chat:send',
+      'chat:stop',
       'ffmpeg:status',
       'floating:getInfo',
       'floating:resize',
@@ -56,6 +60,9 @@ describe('contrato de IPC', () => {
       'recovery:retry',
       'settings:get',
       'settings:update',
+      'summary:cancel',
+      'summary:get',
+      'summary:start',
       'transcript:cancel',
       'transcript:get',
       'transcript:renameSpeaker',
@@ -80,12 +87,14 @@ describe('contrato de IPC', () => {
     expect(isIpcEvent('recording:state')).toBe(true)
     expect(isIpcEvent('app:getVersion')).toBe(false)
     expect(Object.keys(IPC_EVENTS).sort()).toEqual([
+      'chat:event',
       'floating:info',
       'notes:opened',
       'notes:saved',
       'recording:level',
       'recording:state',
       'recovery:report',
+      'summary:changed',
       'transcript:changed'
     ])
   })

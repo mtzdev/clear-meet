@@ -134,7 +134,7 @@ export function FinishedPanel({ finished }: { finished: FinishedRecording }) {
               <p className="text-muted-foreground text-xs">
                 {ai.status && !hasKey
                   ? 'Configure a chave do Gemini nas Configurações para transcrever.'
-                  : 'Gera as falas com Falantes e Instantes. O áudio é enviado ao Gemini, com a sua chave.'}
+                  : 'Gera as falas de cada Falante. O áudio é enviado ao Gemini com a sua chave.'}
               </p>
             </div>
           </div>

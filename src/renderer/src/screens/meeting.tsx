@@ -4,9 +4,11 @@ import { EmptyState } from '@/components/empty-state'
 import { Screen } from '@/components/layout/screen'
 import { MediaPlayer, type PlayerMedia } from '@/components/meeting/media-player'
 import { MeetingHeader } from '@/components/meeting/meeting-header'
+import { ChatTab } from '@/components/meeting/chat-tab'
 import { NotesTab } from '@/components/meeting/notes-tab'
 import { SidePanel } from '@/components/meeting/side-panel'
 import { SplitLayout } from '@/components/meeting/split-layout'
+import { SummaryTab } from '@/components/meeting/summary-tab'
 import { TranscriptTab } from '@/components/meeting/transcript-tab'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -15,6 +17,7 @@ import { useMeetingDetail } from '@/lib/meetings'
 import { PlayerController } from '@/lib/player-controller'
 import { useRecordingState } from '@/lib/recording'
 import { useMeetingId } from '@/lib/router'
+import { useSummaryView } from '@/lib/summary'
 import { useTranscriptView } from '@/lib/transcript'
 import { usePlayerShortcuts } from '@/lib/use-player-shortcuts'
 import type { MeetingDetail } from '@shared/library'
@@ -120,6 +123,8 @@ function MeetingView({
   const locked = detail.lock !== null
   const transcript = useTranscriptView(detail.id, detail.transcript)
   const transcribing = transcript.status === 'running'
+  const summary = useSummaryView(detail.id, detail.summary)
+  const summarizing = summary.status === 'running'
 
   /** Solta o arquivo, renomeia (nome + pasta) e volta a tocar do mesmo ponto. */
   const rename = async (name: string): Promise<string | null> => {
@@ -165,7 +170,29 @@ function MeetingView({
   const panel = (
     <SidePanel
       noteCount={detail.notes.length}
+      hasSummary={summary.status === 'running' || summary.status === 'ready'}
       hasTranscript={transcript.status === 'running' || transcript.status === 'ready'}
+      summary={
+        <SummaryTab
+          folder={detail.folder}
+          meetingName={detail.name}
+          locked={locked}
+          hasAudioFile={detail.hasAudioFile}
+          view={summary}
+          transcript={transcript}
+          controller={controller}
+        />
+      }
+      ask={
+        <ChatTab
+          folder={detail.folder}
+          meetingId={detail.id}
+          durationMs={detail.durationMs}
+          locked={locked}
+          transcript={transcript}
+          controller={controller}
+        />
+      }
       transcript={
         <TranscriptTab
           folder={detail.folder}
@@ -190,7 +217,11 @@ function MeetingView({
 
   return (
     <section aria-labelledby="screen-title" className="flex h-full min-h-0 flex-col">
-      <MeetingHeader detail={detail} canRename={!locked && !transcribing} onRename={rename} />
+      <MeetingHeader
+        detail={detail}
+        canRename={!locked && !transcribing && !summarizing}
+        onRename={rename}
+      />
       {detail.lock && (
         <Alert className="border-warning/40 text-warning mx-4 my-3 w-auto shrink-0">
           <TriangleAlert aria-hidden />

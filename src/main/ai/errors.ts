@@ -34,6 +34,7 @@ export const AI_MESSAGES: Record<AiErrorKind, string> = {
   model: 'O modelo escolhido não está disponível para esta chave.',
   blocked: 'A IA recusou processar este áudio.',
   'bad-request': 'A IA rejeitou o pedido.',
+  'too-large': 'A Reunião é grande demais para este modelo ou para o limite do plano.',
   'bad-response': 'A IA devolveu uma resposta que não deu para interpretar.',
   cancelled: 'Cancelado.',
   unknown: 'Ocorreu um erro inesperado ao falar com a IA.'
@@ -85,6 +86,9 @@ function retryAfterHeader(headers: Headers | undefined): number | null {
   return Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : null
 }
 
+const TOO_LARGE =
+  /request too large|reduce your message size|context[_ ]length|maximum context|exceeds the maximum number of tokens|input token count|payload too large/i
+
 /** Converte uma resposta HTTP de erro em `AiError`. Nunca inclui a chave nem o corpo bruto na mensagem. */
 export function classifyHttpError(status: number, body: string, headers?: Headers): AiError {
   const parsed = parseBody(body)
@@ -97,6 +101,10 @@ export function classifyHttpError(status: number, body: string, headers?: Header
     /api[_ ]key (not valid|invalid)|API_KEY_INVALID|invalid_api_key/i.test(haystack)
   ) {
     return new AiError('invalid-key', AI_MESSAGES['invalid-key'], { status })
+  }
+  // O pedido nunca caberia: tentar de novo é inútil, e outro provedor pode aceitá-lo.
+  if (status === 413 || ([400, 422, 429].includes(status) && TOO_LARGE.test(haystack))) {
+    return new AiError('too-large', AI_MESSAGES['too-large'], { status })
   }
   if (status === 404) {
     return new AiError('model', AI_MESSAGES.model, { status })

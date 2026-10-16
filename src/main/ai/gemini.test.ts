@@ -397,3 +397,109 @@ describe('classifyHttpError', () => {
     expect(classifyHttpError(418, '').kind).toBe('unknown')
   })
 })
+
+describe('classifyHttpError: pedido grande demais', () => {
+  it('413 e mensagens de limite de contexto/tokens viram "too-large", sem novas tentativas', () => {
+    for (const [status, message] of [
+      [413, 'Request Entity Too Large'],
+      [
+        429,
+        'Request too large for model `x` on tokens per minute (TPM): Limit 8000, Requested 18000, please reduce your message size'
+      ],
+      [400, "This model's maximum context length is 131072 tokens"],
+      [400, 'The input token count (200000) exceeds the maximum number of tokens allowed (131072)']
+    ] as const) {
+      const error = classifyHttpError(status, JSON.stringify({ error: { message } }))
+      expect(error.kind).toBe('too-large')
+      expect(error.retryable).toBe(false)
+    }
+  })
+
+  it('um 429 comum por tokens por minuto continua sendo cota, com nova tentativa', () => {
+    const error = classifyHttpError(
+      429,
+      JSON.stringify({
+        error: { message: 'Rate limit reached on tokens per minute (TPM): Limit 8000, Used 7000' }
+      }),
+      new Headers({ 'retry-after': '3' })
+    )
+    expect(error.kind).toBe('quota')
+    expect(error.retryable).toBe(true)
+  })
+})
+
+describe('GeminiClient.generate com histórico e generateStream', () => {
+  it('o histórico vira turnos anteriores e a pergunta atual o último turno', async () => {
+    const { client, calls } = setup([generated('ok')])
+    await client.generate({
+      model: 'gemini-x',
+      systemInstruction: 'sistema',
+      history: [
+        { role: 'user', text: 'p1' },
+        { role: 'model', text: 'r1' }
+      ],
+      parts: [{ text: 'p2' }]
+    })
+    const body = JSON.parse(calls[0]?.init.body as string) as {
+      contents: { role: string; parts: { text: string }[] }[]
+    }
+    expect(body.contents.map((c) => [c.role, c.parts[0]?.text])).toEqual([
+      ['user', 'p1'],
+      ['model', 'r1'],
+      ['user', 'p2']
+    ])
+  })
+
+  function sseResponse(...events: unknown[]): Response {
+    const body = events.map((event) => `data: ${JSON.stringify(event)}\r\n\r\n`).join('')
+    return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+  }
+  const part = (text: string, finishReason?: string) => ({
+    candidates: [{ content: { parts: [{ text }] }, ...(finishReason ? { finishReason } : {}) }]
+  })
+
+  it('entrega o texto aos poucos pelo streamGenerateContent (SSE)', async () => {
+    const { client, calls } = setup([
+      sseResponse(part('Olá, '), { usageMetadata: {} }, part('mundo', 'STOP'))
+    ])
+    const received: string[] = []
+    const result = await client.generateStream(
+      { model: 'gemini-x', parts: [{ text: 'oi' }] },
+      (text) => received.push(text)
+    )
+    expect(received).toEqual(['Olá, ', 'mundo'])
+    expect(result).toEqual({ text: 'Olá, mundo', truncated: false })
+    expect(calls[0]?.url).toContain(':streamGenerateContent?alt=sse')
+    expect(calls[0]?.url).not.toContain(KEY)
+  })
+
+  it('marca o corte por tamanho, recusa conteúdo bloqueado e erro dentro do stream', async () => {
+    const cut = setup([sseResponse(part('meio', 'MAX_TOKENS'))])
+    expect(
+      (await cut.client.generateStream({ model: 'm', parts: [{ text: 'x' }] }, () => undefined))
+        .truncated
+    ).toBe(true)
+
+    const blocked = setup([sseResponse(part('', 'SAFETY'))])
+    await expect(
+      blocked.client.generateStream({ model: 'm', parts: [{ text: 'x' }] }, () => undefined)
+    ).rejects.toMatchObject({ kind: 'blocked' })
+
+    const failing = setup([sseResponse(part('parte'), { error: { code: 503, message: 'x' } })])
+    const received: string[] = []
+    await expect(
+      failing.client.generateStream({ model: 'm', parts: [{ text: 'x' }] }, (t) => received.push(t))
+    ).rejects.toMatchObject({ kind: 'unavailable' })
+    expect(received).toEqual(['parte'])
+  })
+
+  it('503 antes do stream segue as novas tentativas', async () => {
+    const { client, calls } = setup([errorBody(503, 'overloaded'), sseResponse(part('ok', 'STOP'))])
+    const result = await client.generateStream(
+      { model: 'm', parts: [{ text: 'x' }] },
+      () => undefined
+    )
+    expect(result.text).toBe('ok')
+    expect(calls).toHaveLength(2)
+  })
+})

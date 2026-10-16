@@ -29,6 +29,8 @@ const settingsView: SettingsView = {
   noteLeadSeconds: 5,
   barPosition: null,
   transcriptionModel: 'gemini-3.5-flash-lite',
+  groqTextModel: 'openai/gpt-oss-120b',
+  geminiTextModel: 'gemini-3.5-flash-lite',
   resolvedMeetingsDir: 'C:\\Users\\x\\Documents\\ClearMeet'
 }
 
@@ -74,6 +76,17 @@ function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
       cancel: () => undefined,
       renameSpeaker: () =>
         Promise.resolve({ ok: false, error: { code: 'not-found', message: 'sem Transcrição' } })
+    },
+    summary: {
+      get: () => Promise.resolve({ ok: true, value: null }),
+      start: () => Promise.resolve(ok),
+      cancel: () => undefined
+    },
+    chat: {
+      get: () => Promise.resolve({ ok: true, value: { messages: [], pending: null } }),
+      send: () => Promise.resolve({ ok: true, value: { user: null, assistantId: 'a1' } }),
+      stop: () => undefined,
+      clear: () => Promise.resolve(ok)
     },
     ai: {
       getStatus: () => aiStatus,
@@ -224,12 +237,14 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
 
   it('o contrato de eventos tem os eventos esperados', () => {
     expect(Object.keys(IPC_EVENTS).sort()).toEqual([
+      'chat:event',
       'floating:info',
       'notes:opened',
       'notes:saved',
       'recording:level',
       'recording:state',
       'recovery:report',
+      'summary:changed',
       'transcript:changed'
     ])
   })
@@ -286,5 +301,56 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
     api.on('transcript:changed', (event) => received.push(event.view.status))
     emit('transcript:changed', { meetingId: 'm', folder: 'F', view: { status: 'running' } })
     expect(received).toEqual(['running'])
+  })
+
+  it('os canais do Resumo e da Conversa chegam aos handlers e os eventos chegam à UI', async () => {
+    const sent: (string | null)[] = []
+    const stopped: string[] = []
+    const { api, emit } = createWiredApi(
+      fakeDeps({
+        summary: {
+          get: () => Promise.resolve({ ok: true, value: null }),
+          start: () => Promise.resolve(ok),
+          cancel: () => undefined
+        },
+        chat: {
+          get: () => Promise.resolve({ ok: true, value: { messages: [], pending: null } }),
+          send: (_folder, text) => {
+            sent.push(text)
+            return Promise.resolve({ ok: true, value: { user: null, assistantId: 'a1' } })
+          },
+          stop: (folder) => {
+            stopped.push(folder)
+          },
+          clear: () => Promise.resolve(ok)
+        }
+      })
+    )
+    expect(await api.invoke('summary:get', { folder: 'F' })).toEqual({ ok: true, value: null })
+    expect(await api.invoke('summary:start', { folder: 'F' })).toEqual(ok)
+    expect(await api.invoke('summary:cancel', { folder: 'F' })).toBeNull()
+    expect(await api.invoke('chat:get', { folder: 'F' })).toEqual({
+      ok: true,
+      value: { messages: [], pending: null }
+    })
+    expect(
+      await api.invoke('chat:send', { folder: 'F', text: 'Quais as decisões?' })
+    ).toMatchObject({ ok: true, value: { assistantId: 'a1' } })
+    await api.invoke('chat:send', { folder: 'F', text: null })
+    expect(sent).toEqual(['Quais as decisões?', null])
+    expect(await api.invoke('chat:stop', { folder: 'F' })).toBeNull()
+    expect(stopped).toEqual(['F'])
+    expect(await api.invoke('chat:clear', { folder: 'F' })).toEqual(ok)
+
+    const received: string[] = []
+    api.on('summary:changed', (event) => received.push(event.view.status))
+    api.on('chat:event', (event) => received.push(event.type))
+    emit('summary:changed', {
+      meetingId: 'm',
+      folder: 'F',
+      view: { status: 'running', error: null, provider: null, model: null, updatedAt: null }
+    })
+    emit('chat:event', { type: 'delta', meetingId: 'm', messageId: 'a1', text: 'oi' })
+    expect(received).toEqual(['running', 'delta'])
   })
 })

@@ -55,6 +55,13 @@ const deps = {
   newId: () => `nota-${++counter}`
 }
 
+const SUMMARY: MeetingFile['summary'] = {
+  status: 'ready',
+  provider: 'gemini',
+  model: 'gemini-3.5-flash-lite',
+  updatedAt: '2026-10-11T11:00:00.000Z'
+}
+
 describe('addMeetingNote', () => {
   it('grava a Anotação no meeting.json, mantendo a ordem por Instante e o resto do arquivo', async () => {
     const existing: MeetingNote = {
@@ -63,7 +70,7 @@ describe('addMeetingNote', () => {
       text: 'antiga',
       createdAt: '2026-10-10T17:40:00.000Z'
     }
-    await writeMeeting(folder, meeting({ notes: [existing], summary: { texto: 'preservado' } }))
+    await writeMeeting(folder, meeting({ notes: [existing], summary: SUMMARY }))
 
     const result = await addMeetingNote(root, folder, { offsetMs: 10_000, text: '  nova  ' }, deps)
     expect(result.ok && result.value).toEqual({
@@ -74,7 +81,7 @@ describe('addMeetingNote', () => {
     })
     const file = await saved()
     expect(file.notes.map((entry) => entry.text)).toEqual(['nova', 'antiga'])
-    expect(file.summary).toEqual({ texto: 'preservado' })
+    expect(file.summary).toEqual(SUMMARY)
     // Escrita atômica: nada além do meeting.json fica na pasta.
     expect(await readdir(folder)).toEqual([MEETING_FILE])
   })
