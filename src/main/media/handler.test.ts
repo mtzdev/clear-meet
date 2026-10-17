@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mediaUrl } from '@shared/media'
+import { mediaUrl, thumbnailUrl } from '@shared/media'
 import { createMediaHandler, parseRange, resolveMediaPath } from './handler'
 
 describe('parseRange', () => {
@@ -32,12 +32,17 @@ describe('parseRange', () => {
 
 let root: string
 let outside: string
+let thumbs: string
 beforeEach(async () => {
   const base = await mkdtemp(join(tmpdir(), 'clearmeet-media-'))
   root = join(base, 'Reunioes')
   outside = join(base, 'fora')
+  thumbs = join(base, 'thumbnails')
   await mkdir(join(root, '2026-10-10 1430 - Reunião'), { recursive: true })
   await mkdir(outside)
+  await mkdir(thumbs)
+  await writeFile(join(thumbs, 'abc-1.jpg'), 'JPEG')
+  await writeFile(join(thumbs, 'segredo.txt'), 'x')
   await writeFile(join(root, '2026-10-10 1430 - Reunião', 'video.mp4'), '0123456789')
   await writeFile(join(root, '2026-10-10 1430 - Reunião', 'audio.opus'), 'abcdef')
   await writeFile(join(root, '2026-10-10 1430 - Reunião', 'meeting.json'), '{"segredo":1}')
@@ -82,7 +87,11 @@ describe('resolveMediaPath: normalização da URL', () => {
 })
 
 describe('createMediaHandler', () => {
-  const handler = (): ReturnType<typeof createMediaHandler> => createMediaHandler(() => root)
+  const handler = (): ReturnType<typeof createMediaHandler> =>
+    createMediaHandler(
+      () => root,
+      () => thumbs
+    )
   const get = (
     url: string,
     headers: Record<string, string> = {},
@@ -146,10 +155,29 @@ describe('createMediaHandler', () => {
 
   it('segue a pasta das Reuniões atual (muda em runtime)', async () => {
     let current = root
-    const dynamic = createMediaHandler(() => current)
+    const dynamic = createMediaHandler(
+      () => current,
+      () => thumbs
+    )
     const url = mediaUrl(FOLDER, 'video.mp4')
     expect((await dynamic(new Request(url))).status).toBe(200)
     current = outside
     expect((await dynamic(new Request(url))).status).toBe(404)
+  })
+
+  it('serve a miniatura do cache com o tipo e o cache certos', async () => {
+    const response = await get(thumbnailUrl('abc-1', 7))
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe('image/jpeg')
+    expect(response.headers.get('Cache-Control')).toContain('max-age')
+    expect(await response.text()).toBe('JPEG')
+    expect((await get(thumbnailUrl('abc-1', 7), {}, 'HEAD')).status).toBe(200)
+  })
+
+  it('miniatura inexistente é 404 e só o cache é lido (nunca as pastas das Reuniões)', async () => {
+    expect((await get(thumbnailUrl('nao-existe', 1))).status).toBe(404)
+    expect((await get('clearmeet-media://thumbnail/segredo.txt')).status).toBe(404)
+    expect((await get('clearmeet-media://thumbnail/..%2Ffora%2Fvideo.jpg')).status).toBe(404)
+    expect((await get(thumbnailUrl('abc-1', 1), {}, 'POST')).status).toBe(405)
   })
 })

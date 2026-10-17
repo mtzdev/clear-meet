@@ -16,16 +16,112 @@ export interface MeetingListItem {
   /** É a Reunião que está sendo gravada agora (ou finalizando). */
   live: boolean
   source: { kind: CaptureSourceKind; name: string | null }
+  /** Tamanho de todos os arquivos da pasta. */
+  sizeBytes: number
   noteCount: number
   transcriptStatus: TranscriptStatus
   summaryStatus: SummaryStatus
+  /** `video.mp4` existe na pasta. */
+  hasVideo: boolean
+  /** URL da miniatura, ou `null` (sem Vídeo, ainda não gerada ou sem FFmpeg). */
+  thumbnail: string | null
 }
 
-export interface MeetingList {
-  /** Mais recentes primeiro. */
-  items: MeetingListItem[]
-  /** Pastas com `meeting.json` ilegível ou de versão desconhecida (ignoradas, nunca alteradas). */
+export const LIBRARY_SORTS = ['newest', 'oldest', 'longest', 'relevance'] as const
+export type LibrarySort = (typeof LIBRARY_SORTS)[number]
+
+export function isLibrarySort(value: unknown): value is LibrarySort {
+  return typeof value === 'string' && (LIBRARY_SORTS as readonly string[]).includes(value)
+}
+
+/** Busca na Biblioteca: texto livre (nome e conteúdo), intervalo de datas e ordenação. */
+export interface LibraryQuery {
+  text: string
+  /** Início (inclusive) e fim (exclusivo) em ms desde a época, sobre o início da gravação. */
+  fromMs: number | null
+  toMs: number | null
+  sort: LibrarySort
+  /** Máximo de Reuniões devolvidas; `null` = o padrão. */
+  limit: number | null
+}
+
+export const DEFAULT_LIBRARY_QUERY: LibraryQuery = {
+  text: '',
+  fromMs: null,
+  toMs: null,
+  sort: 'newest',
+  limit: null
+}
+
+/** Um trecho de texto, com `match` nas partes que casam com a busca. */
+export interface SnippetPart {
+  text: string
+  match: boolean
+}
+
+export const HIT_KINDS = ['name', 'utterance', 'note', 'summary'] as const
+/** Onde a busca achou o termo: nome da Reunião, Fala da Transcrição, Anotação ou Resumo. */
+export type HitKind = (typeof HIT_KINDS)[number]
+
+export interface SearchHit {
+  kind: HitKind
+  /** Instante do trecho (Fala, Anotação ou item do Resumo); `null` no nome e na visão geral. */
+  offsetMs: number | null
+  /** Falante da Fala, com o termo marcado se for ele que casou. */
+  speaker: SnippetPart[] | null
+  parts: SnippetPart[]
+}
+
+export interface LibraryEntry {
+  meeting: MeetingListItem
+  /** Melhores trechos achados (vazio sem texto na busca). */
+  hits: SearchHit[]
+  /** Quantos trechos casaram no total. */
+  hitCount: number
+}
+
+export interface LibraryResult {
+  entries: LibraryEntry[]
+  /** Reuniões que casam com a busca (pode ser maior que `entries` quando há limite). */
+  total: number
+  /** Reuniões no índice, sem filtro: distingue "nenhuma ainda" de "nenhuma encontrada". */
+  indexed: number
+  /** Pastas com `meeting.json` ilegível, de versão desconhecida ou repetido (ignoradas, nunca alteradas). */
   skipped: number
+  /** O índice está sendo atualizado agora. */
+  updating: boolean
+}
+
+export type ListStatusKind =
+  'recording' | 'interrupted' | 'processing' | 'transcribing' | 'summarizing' | 'warning' | 'ready'
+
+export interface ListStatus {
+  kind: ListStatusKind
+  label: string
+}
+
+/** A linha de status da lista: gravando, interrompida, processando, transcrevendo, resumindo ou pronta. */
+export function listStatus(
+  item: Pick<MeetingListItem, 'status' | 'live' | 'transcriptStatus' | 'summaryStatus'>
+): ListStatus {
+  if (item.live) return { kind: 'recording', label: 'Gravando agora' }
+  switch (item.status) {
+    case 'recording':
+      return { kind: 'interrupted', label: 'Interrompida' }
+    case 'processing':
+      return { kind: 'processing', label: 'Processando' }
+    case 'unprocessed':
+      return { kind: 'processing', label: 'Arquivos pendentes' }
+    case 'ready':
+      break
+  }
+  if (item.transcriptStatus === 'running') return { kind: 'transcribing', label: 'Transcrevendo' }
+  if (item.summaryStatus === 'running') return { kind: 'summarizing', label: 'Resumindo' }
+  if (item.transcriptStatus === 'error') {
+    return { kind: 'warning', label: 'Transcrição interrompida' }
+  }
+  if (item.summaryStatus === 'error') return { kind: 'warning', label: 'Resumo interrompido' }
+  return { kind: 'ready', label: 'Pronta' }
 }
 
 /**
@@ -34,13 +130,6 @@ export interface MeetingList {
  * - `unfinished`: gravação encerrada, mas os arquivos finais ainda não estão prontos.
  */
 export type MeetingLock = 'recording' | 'unfinished'
-
-/** Ordem da lista: mais recentes primeiro (empate: pelo caminho, para ser estável). */
-export function compareMeetingsNewestFirst(a: MeetingListItem, b: MeetingListItem): number {
-  const byDate = Date.parse(b.createdAt) - Date.parse(a.createdAt)
-  if (byDate !== 0) return byDate
-  return a.folder.localeCompare(b.folder)
-}
 
 /** Motivo do bloqueio de edição, ou `null` se a Reunião está pronta para editar. */
 export function lockFor(status: MeetingStatus, live: boolean): MeetingLock | null {

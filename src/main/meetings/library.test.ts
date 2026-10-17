@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -8,7 +8,7 @@ import {
   type MeetingFile,
   type MeetingNote
 } from '@shared/meeting'
-import { findMeetingFolder, listMeetings, loadMeetingDetail } from './library'
+import { findMeetingFolder, loadMeetingDetail } from './library'
 import { writeMeeting } from './repository'
 
 function note(id: string, offsetMs: number): MeetingNote {
@@ -55,72 +55,6 @@ async function create(
   return folder
 }
 
-describe('listMeetings', () => {
-  it('lista as Reuniões válidas, mais recentes primeiro, com os dados da lista', async () => {
-    await create('antiga', { id: 'a', name: 'Antiga', createdAt: '2026-10-01T10:00:00.000Z' })
-    await create('nova', {
-      id: 'n',
-      name: 'Nova',
-      createdAt: '2026-10-12T10:00:00.000Z',
-      source: { kind: 'none', name: null },
-      video: null,
-      notes: [note('1', 1000), note('2', 2000)]
-    })
-    const meio = await create('meio', {
-      id: 'm',
-      name: 'Meio',
-      createdAt: '2026-10-05T10:00:00.000Z',
-      durationMs: null,
-      status: 'recording'
-    })
-
-    const list = await listMeetings(root, meio)
-    expect(list.skipped).toBe(0)
-    expect(list.items.map((item) => item.id)).toEqual(['n', 'm', 'a'])
-    expect(list.items[0]).toMatchObject({
-      name: 'Nova',
-      durationMs: 1_800_000,
-      status: 'ready',
-      live: false,
-      source: { kind: 'none', name: null },
-      noteCount: 2,
-      folder: join(root, 'nova')
-    })
-    // A Reunião em gravação aparece, marcada como `live`, sem duração.
-    expect(list.items[1]).toMatchObject({ live: true, status: 'recording', durationMs: null })
-  })
-
-  it('ignora o que não é Reunião e conta os meeting.json inválidos, sem alterá-los', async () => {
-    await create('boa', { id: 'ok' })
-    await mkdir(join(root, 'sem-json'))
-    await writeFile(join(root, 'solto.txt'), 'x')
-    await mkdir(join(root, 'quebrada'))
-    await writeFile(join(root, 'quebrada', MEETING_FILE), '{ "schemaVersion": 1, ')
-    await mkdir(join(root, 'futura'))
-    const future = JSON.stringify({ schemaVersion: 99, id: 'f' })
-    await writeFile(join(root, 'futura', MEETING_FILE), future)
-
-    const list = await listMeetings(root, null)
-    expect(list.items.map((item) => item.id)).toEqual(['ok'])
-    expect(list.skipped).toBe(2)
-    expect(await readFile(join(root, 'futura', MEETING_FILE), 'utf8')).toBe(future)
-  })
-
-  it('pasta das Reuniões inexistente ou vazia = lista vazia', async () => {
-    expect(await listMeetings(join(root, 'nao-existe'), null)).toEqual({ items: [], skipped: 0 })
-    expect(await listMeetings(root, null)).toEqual({ items: [], skipped: 0 })
-  })
-
-  it('a pasta ativa casa mesmo com caixa diferente no Windows', async () => {
-    const folder = await create('Ativa', { id: 'x', status: 'recording', durationMs: null })
-    const list = await listMeetings(
-      root,
-      process.platform === 'win32' ? folder.toLowerCase() : folder
-    )
-    expect(list.items[0]?.live).toBe(true)
-  })
-})
-
 describe('findMeetingFolder', () => {
   it('acha a pasta pelo id, mesmo com outro nome de pasta', async () => {
     await create('qualquer nome', { id: 'procurado' })
@@ -150,13 +84,12 @@ describe('loadMeetingDetail', () => {
     expect(result.value.notes.map((entry) => entry.id)).toEqual(['a', 'b'])
   })
 
-  it('o estado do Resumo aparece no detalhe e na lista ("Resumindo…")', async () => {
+  it('o estado do Resumo aparece no detalhe', async () => {
     const summary = {
       status: 'running' as const,
       updatedAt: '2026-10-13T13:00:00.000Z'
     }
     const folder = await create('resumindo', { summary })
-    await create('sem-resumo', { id: 'outro', createdAt: '2026-10-09T10:00:00.000Z' })
 
     const detail = await loadMeetingDetail(root, folder, null)
     expect(detail.ok && detail.value.summary).toEqual({
@@ -166,11 +99,6 @@ describe('loadMeetingDetail', () => {
       model: null,
       updatedAt: '2026-10-13T13:00:00.000Z'
     })
-    const list = await listMeetings(root, null)
-    expect(list.items.map((item) => [item.id, item.summaryStatus])).toEqual([
-      ['id-1', 'running'],
-      ['outro', 'none']
-    ])
   })
 
   it('sem video.mp4 no disco (ou Reunião só de áudio) só há o Áudio da reunião', async () => {

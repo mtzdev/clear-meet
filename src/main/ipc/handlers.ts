@@ -3,7 +3,7 @@ import type { ChatSent, ChatState } from '@shared/chat'
 import type { FfmpegStatus } from '@shared/ffmpeg'
 import type { FloatingInfo } from '@shared/floating'
 import type { IpcHandlers } from '@shared/ipc'
-import type { MeetingDetail, MeetingList } from '@shared/library'
+import type { LibraryQuery, LibraryResult, MeetingDetail } from '@shared/library'
 import type { MeetingNote } from '@shared/meeting'
 import type {
   CaptureSourceInfo,
@@ -35,8 +35,11 @@ export interface HandlerDeps {
   }
   renameMeeting(folder: string, name: string): Promise<Result<RenamedMeeting>>
   revealMeeting(folder: string): Promise<void>
+  library: {
+    search(query: LibraryQuery): Promise<LibraryResult>
+    refresh(): Promise<void>
+  }
   meetings: {
-    list(): Promise<MeetingList>
     get(id: string): Promise<Result<MeetingDetail>>
     addNote(folder: string, offsetMs: number, text: string): Promise<Result<MeetingNote>>
     updateNote(folder: string, noteId: string, text: string): Promise<Result<MeetingNote>>
@@ -106,7 +109,11 @@ export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
       await deps.revealMeeting(request.folder)
       return null
     },
-    'meetings:list': () => deps.meetings.list(),
+    'library:search': (request) => deps.library.search(request),
+    'library:refresh': async () => {
+      await deps.library.refresh()
+      return null
+    },
     'meeting:get': (request) => deps.meetings.get(request.id),
     'meeting:addNote': (request) =>
       deps.meetings.addNote(request.folder, request.offsetMs, request.text),

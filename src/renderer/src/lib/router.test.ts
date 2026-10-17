@@ -6,7 +6,8 @@ import {
   meetingHref,
   parseHash,
   parseHashParams,
-  parseMeetingId
+  parseMeetingId,
+  parseMeetingStart
 } from './router'
 
 describe('router', () => {
@@ -50,5 +51,36 @@ describe('Reunião no hash', () => {
   it('lê os parâmetros do hash', () => {
     expect(parseHashParams('#/meeting?id=x&y=1').get('y')).toBe('1')
     expect(parseHashParams('#/meeting').get('id')).toBeNull()
+  })
+})
+
+describe('Instante inicial no hash', () => {
+  it('monta o link com o Instante e o lê de volta', () => {
+    expect(meetingHref('abc', 61_500)).toBe('#/meeting?id=abc&t=61500')
+    expect(parseMeetingStart(meetingHref('abc', 61_500))).toBe(61_500)
+    expect(parseMeetingId(meetingHref('abc', 61_500))).toBe('abc')
+    expect(parseMeetingStart(meetingHref('abc', 0))).toBe(0)
+  })
+
+  it('arredonda e ignora Instantes inválidos ao montar o link', () => {
+    expect(meetingHref('abc', 1500.6)).toBe('#/meeting?id=abc&t=1501')
+    for (const invalid of [null, undefined, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(meetingHref('abc', invalid)).toBe('#/meeting?id=abc')
+    }
+  })
+
+  it('sem t, com t inválido ou fora da rota da Reunião não há Instante', () => {
+    expect(parseMeetingStart('#/meeting?id=abc')).toBeNull()
+    expect(parseMeetingStart('#/meeting?id=abc&t=')).toBeNull()
+    expect(parseMeetingStart('#/meeting?id=abc&t=-5')).toBeNull()
+    expect(parseMeetingStart('#/meeting?id=abc&t=1.5')).toBeNull()
+    expect(parseMeetingStart('#/meeting?id=abc&t=abc')).toBeNull()
+    expect(parseMeetingStart('#/meetings?id=abc&t=100')).toBeNull()
+    expect(parseMeetingStart('')).toBeNull()
+  })
+
+  it('o t pode vir antes do id', () => {
+    expect(parseMeetingStart('#/meeting?t=9000&id=abc')).toBe(9000)
+    expect(parseMeetingId('#/meeting?t=9000&id=abc')).toBe('abc')
   })
 })

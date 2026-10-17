@@ -1,9 +1,9 @@
 import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { MEETING_FILES } from '@shared/meeting'
-import { parseMediaUrl, type MediaFileName } from '@shared/media'
+import { parseMediaUrl, parseThumbnailUrl, type MediaFileName } from '@shared/media'
 import { isDirectChild } from '../meetings/repository'
 
 /** Sem suporte a `Range` o player não faz seek no MP4. Qualquer caminho fora do permitido é 404. */
@@ -58,9 +58,35 @@ export function resolveMediaPath(root: string, url: string): string | null {
   return join(folder, parsed.file)
 }
 
-export function createMediaHandler(getRoot: () => string): (request: Request) => Promise<Response> {
+/** Miniaturas (JPEG pequeno) do cache; o nome do arquivo já foi validado pelo parser da URL. */
+async function serveThumbnail(request: Request, dir: string, name: string): Promise<Response> {
+  let data: Buffer
+  try {
+    data = await readFile(join(dir, name))
+  } catch {
+    return plain(404)
+  }
+  const headers = {
+    'Content-Type': 'image/jpeg',
+    'Content-Length': String(data.length),
+    // A URL traz a versão (`?v=`), então o cache pode guardar.
+    'Cache-Control': 'private, max-age=86400',
+    'X-Content-Type-Options': 'nosniff'
+  }
+  return new Response(request.method === 'HEAD' ? null : new Uint8Array(data), {
+    status: 200,
+    headers
+  })
+}
+
+export function createMediaHandler(
+  getRoot: () => string,
+  getThumbnailsDir: () => string
+): (request: Request) => Promise<Response> {
   return async (request) => {
     if (request.method !== 'GET' && request.method !== 'HEAD') return plain(405)
+    const thumbnail = parseThumbnailUrl(request.url)
+    if (thumbnail) return serveThumbnail(request, getThumbnailsDir(), thumbnail)
     const path = resolveMediaPath(getRoot(), request.url)
     if (!path) return plain(404)
 

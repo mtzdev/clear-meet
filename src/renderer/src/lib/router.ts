@@ -26,9 +26,16 @@ export function parseHashParams(hash: string): URLSearchParams {
   return new URLSearchParams(query)
 }
 
-/** Link para abrir uma Reunião pelo `id` do `meeting.json` (estável mesmo se a pasta for renomeada). */
-export function meetingHref(id: string): string {
-  return `${hrefFor('meeting')}?id=${encodeURIComponent(id)}`
+/**
+ * Link para abrir uma Reunião pelo `id` do `meeting.json` (estável mesmo se a pasta for
+ * renomeada). Com `startMs`, o player abre já nesse Instante.
+ */
+export function meetingHref(id: string, startMs?: number | null): string {
+  const start =
+    typeof startMs === 'number' && Number.isFinite(startMs) && startMs >= 0
+      ? `&t=${Math.round(startMs)}`
+      : ''
+  return `${hrefFor('meeting')}?id=${encodeURIComponent(id)}${start}`
 }
 
 /** `id` da Reunião aberta no hash, ou `null`. */
@@ -38,8 +45,17 @@ export function parseMeetingId(hash: string): string | null {
   return id !== null && id !== '' ? id : null
 }
 
-export function openMeeting(id: string): void {
-  window.location.hash = meetingHref(id)
+/** Instante (ms) em que a Reunião aberta deve começar (`&t=`), ou `null`. */
+export function parseMeetingStart(hash: string): number | null {
+  if (parseHash(hash) !== 'meeting') return null
+  const raw = parseHashParams(hash).get('t')
+  if (raw === null || !/^\d+$/.test(raw)) return null
+  const value = Number(raw)
+  return Number.isSafeInteger(value) ? value : null
+}
+
+export function openMeeting(id: string, startMs?: number | null): void {
+  window.location.hash = meetingHref(id, startMs)
 }
 
 export function navigate(route: Route): void {
@@ -61,4 +77,10 @@ export function useRoute(): Route {
 export function useMeetingId(): string | null {
   const hash = useSyncExternalStore(subscribe, () => window.location.hash)
   return parseMeetingId(hash)
+}
+
+/** Instante inicial pedido na rota (`&t=...`), em ms. */
+export function useMeetingStart(): number | null {
+  const hash = useSyncExternalStore(subscribe, () => window.location.hash)
+  return parseMeetingStart(hash)
 }

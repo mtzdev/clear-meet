@@ -1,4 +1,4 @@
-import type { MeetingIssue, MeetingStatus } from '@shared/meeting'
+import type { MeetingIssue } from '@shared/meeting'
 import type { MeetingLock } from '@shared/library'
 import { formatInstant } from '@shared/timeline'
 
@@ -14,21 +14,6 @@ export const SOURCE_KIND_LABEL = {
   window: 'Janela',
   none: 'Só áudio'
 } as const
-
-/** Rótulo do status de uma Reunião que ainda não está pronta (`ready` não precisa de rótulo). */
-export function statusLabel(status: MeetingStatus, live: boolean): string | null {
-  if (live) return 'Gravando agora'
-  switch (status) {
-    case 'ready':
-      return null
-    case 'recording':
-      return 'Gravação interrompida'
-    case 'processing':
-      return 'Processando'
-    case 'unprocessed':
-      return 'Arquivos pendentes'
-  }
-}
 
 export const LOCK_TEXT: Record<MeetingLock, { title: string; detail: string }> = {
   recording: {

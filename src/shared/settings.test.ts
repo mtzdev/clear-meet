@@ -90,10 +90,10 @@ describe('parseSettings', () => {
 describe('applySettingsPatch', () => {
   it('troca os modelos de texto e ignora valores desconhecidos', () => {
     const next = applySettingsPatch(DEFAULT_SETTINGS, {
-      groqTextModel: 'openai/gpt-oss-20b',
+      groqTextModel: 'llama-3.3-70b-versatile',
       geminiTextModel: 'gemini-3.6-flash'
     })
-    expect(next.groqTextModel).toBe('openai/gpt-oss-20b')
+    expect(next.groqTextModel).toBe('llama-3.3-70b-versatile')
     expect(next.geminiTextModel).toBe('gemini-3.6-flash')
     const ignored = applySettingsPatch(next, { groqTextModel: 'x', geminiTextModel: 'y' })
     expect(ignored).toEqual(next)

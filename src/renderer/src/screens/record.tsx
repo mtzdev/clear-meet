@@ -5,6 +5,7 @@ import { AudioSection } from '@/components/record/audio-section'
 import { FinishedPanel } from '@/components/record/finished-panel'
 import { PreflightNotices, RecoveryBanner } from '@/components/record/notices'
 import { QualitySection } from '@/components/record/quality-section'
+import { RecentMeetings } from '@/components/record/recent-meetings'
 import { SourcePicker } from '@/components/record/source-picker'
 import { Screen } from '@/components/layout/screen'
 import { Button } from '@/components/ui/button'
@@ -111,6 +112,8 @@ export function RecordScreen() {
             />
           </div>
         </div>
+
+        <RecentMeetings />
       </div>
 
       <div className="bg-background/90 border-border sticky bottom-0 border-t backdrop-blur">

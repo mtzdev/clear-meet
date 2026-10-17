@@ -1,12 +1,6 @@
 import { stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import {
-  compareMeetingsNewestFirst,
-  lockFor,
-  type MeetingDetail,
-  type MeetingList,
-  type MeetingListItem
-} from '@shared/library'
+import { lockFor, type MeetingDetail } from '@shared/library'
 import { MEETING_FILES, type MeetingFile } from '@shared/meeting'
 import type { RecordingError, Result } from '@shared/recording'
 import { makeSummaryView } from '@shared/summary'
@@ -16,46 +10,6 @@ import { isDirectChild, listMeetingFolders, MEETING_NOT_FOUND, readMeeting } fro
 
 function fail(code: RecordingError['code'], message: string): { ok: false; error: RecordingError } {
   return { ok: false, error: { code, message } }
-}
-
-export function toListItem(folder: string, meeting: MeetingFile, live: boolean): MeetingListItem {
-  return {
-    id: meeting.id,
-    folder,
-    name: meeting.name,
-    createdAt: meeting.createdAt,
-    durationMs: meeting.durationMs,
-    status: meeting.status,
-    live,
-    source: meeting.source,
-    noteCount: meeting.notes.length,
-    transcriptStatus: meeting.transcript?.status ?? 'none',
-    summaryStatus: meeting.summary?.status ?? 'none'
-  }
-}
-
-/** Pastas sem `meeting.json` são ignoradas em silêncio; as com `meeting.json` inválido entram em `skipped`. */
-export async function listMeetings(
-  root: string,
-  activeFolder: string | null
-): Promise<MeetingList> {
-  const folders = await listMeetingFolders(root)
-  const reads = await Promise.all(
-    folders.map(async (folder) => ({ folder, read: await readMeeting(folder) }))
-  )
-  const items: MeetingListItem[] = []
-  let skipped = 0
-  for (const { folder, read } of reads) {
-    if (read.ok) {
-      items.push(
-        toListItem(folder, read.value, activeFolder !== null && sameFolder(folder, activeFolder))
-      )
-    } else if (read.error !== MEETING_NOT_FOUND) {
-      skipped++
-    }
-  }
-  items.sort(compareMeetingsNewestFirst)
-  return { items, skipped }
 }
 
 export async function findMeetingFolder(root: string, id: string): Promise<string | null> {

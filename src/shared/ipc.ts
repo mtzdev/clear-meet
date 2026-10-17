@@ -2,7 +2,7 @@ import type { AiProvider, AiStatus, KeyTestResult } from './ai'
 import type { ChatEvent, ChatSent, ChatState } from './chat'
 import type { FfmpegStatus } from './ffmpeg'
 import type { FloatingInfo, NoteSavedEvent } from './floating'
-import type { MeetingDetail, MeetingList } from './library'
+import type { LibraryQuery, LibraryResult, MeetingDetail } from './library'
 import type { MeetingNote } from './meeting'
 import type {
   AudioLevels,
@@ -43,8 +43,10 @@ export interface IpcContract {
   /** Renomeia a Reunião no `meeting.json` e, se possível, a pasta. */
   'meeting:rename': { request: { folder: string; name: string }; response: Result<RenamedMeeting> }
   'meeting:reveal': { request: { folder: string }; response: null }
-  /** Reuniões lidas das pastas, mais recentes primeiro. */
-  'meetings:list': { request: void; response: MeetingList }
+  /** Lista e busca de Reuniões no índice (nome, conteúdo, datas, ordenação). */
+  'library:search': { request: LibraryQuery; response: LibraryResult }
+  /** Reconcilia o índice com as pastas (abrir a tela Reuniões); ignorado se acabou de rodar. */
+  'library:refresh': { request: void; response: null }
   /** Abre uma Reunião pelo `id` (o `meeting.json` é a verdade; a pasta pode ter sido renomeada). */
   'meeting:get': { request: { id: string }; response: Result<MeetingDetail> }
   /** Anotações depois da gravação (só Reuniões prontas). `offsetMs` é o Instante. */
@@ -126,6 +128,8 @@ export interface IpcEventContract {
   'summary:changed': SummaryChangedEvent
   /** Resposta da Conversa chegando, concluída ou com erro. */
   'chat:event': ChatEvent
+  /** O índice da Biblioteca mudou: telas com lista de Reuniões consultam de novo. */
+  'library:changed': null
 }
 
 export type IpcEventName = keyof IpcEventContract
@@ -167,7 +171,8 @@ export const IPC_CHANNELS = {
   'recording:acknowledge': true,
   'meeting:rename': true,
   'meeting:reveal': true,
-  'meetings:list': true,
+  'library:search': true,
+  'library:refresh': true,
   'meeting:get': true,
   'meeting:addNote': true,
   'meeting:updateNote': true,
@@ -210,7 +215,8 @@ export const IPC_EVENTS = {
   'notes:opened': true,
   'transcript:changed': true,
   'summary:changed': true,
-  'chat:event': true
+  'chat:event': true,
+  'library:changed': true
 } as const satisfies Record<IpcEventName, true>
 
 export function isIpcEvent(value: unknown): value is IpcEventName {

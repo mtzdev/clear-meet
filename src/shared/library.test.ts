@@ -1,34 +1,60 @@
 import { describe, expect, it } from 'vitest'
-import { compareMeetingsNewestFirst, lockFor, type MeetingListItem } from './library'
+import { listStatus, lockFor, type MeetingListItem } from './library'
 
-function item(folder: string, createdAt: string): MeetingListItem {
+type StatusInput = Pick<MeetingListItem, 'status' | 'live' | 'transcriptStatus' | 'summaryStatus'>
+
+function input(overrides: Partial<StatusInput> = {}): StatusInput {
   return {
-    id: folder,
-    folder,
-    name: folder,
-    createdAt,
-    durationMs: 1000,
     status: 'ready',
     live: false,
-    source: { kind: 'none', name: null },
-    noteCount: 0,
     transcriptStatus: 'none',
-    summaryStatus: 'none'
+    summaryStatus: 'none',
+    ...overrides
   }
 }
 
-describe('compareMeetingsNewestFirst', () => {
-  it('ordena do mais recente para o mais antigo; empate pelo caminho', () => {
-    const list = [
-      item('b', '2026-10-10T10:00:00.000Z'),
-      item('c', '2026-10-12T10:00:00.000Z'),
-      item('a', '2026-10-10T10:00:00.000Z')
-    ]
-    expect(list.sort(compareMeetingsNewestFirst).map((entry) => entry.folder)).toEqual([
-      'c',
-      'a',
-      'b'
-    ])
+describe('listStatus', () => {
+  it('Reunião pronta sem IA em andamento é "Pronta"', () => {
+    expect(listStatus(input())).toEqual({ kind: 'ready', label: 'Pronta' })
+    expect(listStatus(input({ transcriptStatus: 'ready', summaryStatus: 'ready' })).kind).toBe(
+      'ready'
+    )
+  })
+
+  it('a gravação ao vivo vence qualquer outro estado', () => {
+    expect(listStatus(input({ live: true, status: 'recording' }))).toEqual({
+      kind: 'recording',
+      label: 'Gravando agora'
+    })
+  })
+
+  it('gravação sem app gravando é interrompida', () => {
+    expect(listStatus(input({ status: 'recording' })).kind).toBe('interrupted')
+  })
+
+  it('pós-processamento e arquivos pendentes são "processando"', () => {
+    expect(listStatus(input({ status: 'processing' }))).toEqual({
+      kind: 'processing',
+      label: 'Processando'
+    })
+    expect(listStatus(input({ status: 'unprocessed' })).kind).toBe('processing')
+  })
+
+  it('mostra a IA em andamento: Transcrição antes do Resumo', () => {
+    expect(listStatus(input({ transcriptStatus: 'running', summaryStatus: 'running' })).kind).toBe(
+      'transcribing'
+    )
+    expect(listStatus(input({ transcriptStatus: 'ready', summaryStatus: 'running' }))).toEqual({
+      kind: 'summarizing',
+      label: 'Resumindo'
+    })
+  })
+
+  it('avisa quando a Transcrição ou o Resumo foram interrompidos', () => {
+    expect(listStatus(input({ transcriptStatus: 'error' })).kind).toBe('warning')
+    expect(listStatus(input({ transcriptStatus: 'ready', summaryStatus: 'error' })).kind).toBe(
+      'warning'
+    )
   })
 })
 

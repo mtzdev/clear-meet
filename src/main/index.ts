@@ -43,8 +43,10 @@ import { createRecordingTray } from './floating/tray'
 import { createBarWindow, createNoteWindow, readDisplays } from './floating/windows'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
+import { LibraryService } from './library/service'
+import { loadSqlite } from './library/sqlite'
 import { createMediaHandler } from './media/handler'
-import { findMeetingFolder, listMeetings, loadMeetingDetail } from './meetings/library'
+import { loadMeetingDetail } from './meetings/library'
 import { addMeetingNote, deleteMeetingNote, editMeetingNote } from './meetings/notes-store'
 import { isDirectChild, renameMeeting } from './meetings/repository'
 import { readSummary } from './meetings/summary-store'
@@ -106,6 +108,8 @@ if (!app.requestSingleInstanceLock()) {
         window.hide()
       }
     })
+    // Pastas mexidas fora do app (Explorador) aparecem ao voltar para a janela.
+    window.on('focus', () => void library?.reconcile())
     window.on('closed', () => {
       if (mainWindow === window) mainWindow = null
       // A janela de gravação é oculta e mantém o app vivo: fechar a principal durante uma
@@ -125,6 +129,7 @@ if (!app.requestSingleInstanceLock()) {
 
   let recording: RecordingService | null = null
   let floating: FloatingController | null = null
+  let library: LibraryService | null = null
 
   /** Traz a janela principal para a frente (ela fica oculta enquanto a barra flutuante grava). */
   const showMainWindow = (): void => {
@@ -176,7 +181,11 @@ if (!app.requestSingleInstanceLock()) {
       (contents) => recorderFactory.isRecorder(contents),
       () => (mainWindow ? [mainWindow] : [])
     )
-    protocol.handle(MEDIA_SCHEME, createMediaHandler(meetingsDir))
+    const thumbnailsDir = join(app.getPath('userData'), 'thumbnails')
+    protocol.handle(
+      MEDIA_SCHEME,
+      createMediaHandler(meetingsDir, () => thumbnailsDir)
+    )
     captureSources.install(session.defaultSession)
     installPermissionHandlers(
       session.defaultSession,
@@ -191,7 +200,10 @@ if (!app.requestSingleInstanceLock()) {
     const dispatchEvent = <E extends IpcEventName>(event: E, payload: IpcEventPayload<E>): void => {
       sendToRenderer(event, payload)
       floating?.forwardToBar(event, payload)
-      if (event === 'recording:state') floating?.onRecordingState(payload as RecordingState)
+      if (event === 'recording:state') {
+        floating?.onRecordingState(payload as RecordingState)
+        library?.onRecordingState(payload as RecordingState)
+      }
     }
 
     const windowState = await loadWindowStateProbe(log)
@@ -219,6 +231,21 @@ if (!app.requestSingleInstanceLock()) {
       log
     })
     recording = service
+
+    const libraryIndex = new LibraryService({
+      dbPath: join(app.getPath('userData'), 'library.db'),
+      thumbnailsDir,
+      meetingsDir,
+      activeFolder: () => service.activeFolder(),
+      loadSqlite,
+      getTools,
+      // As miniaturas esperam a gravação terminar para não disputar a máquina com ela.
+      canMakeThumbnails: () => !service.isBusy(),
+      emitChanged: () => sendToRenderer('library:changed', null),
+      now: () => Date.now(),
+      log
+    })
+    library = libraryIndex
 
     floating = new FloatingController({
       recording: service,
@@ -264,7 +291,13 @@ if (!app.requestSingleInstanceLock()) {
       meetingsDir,
       getTools,
       activeFolder: () => service.activeFolder(),
-      emit: (report) => sendToRenderer('recovery:report', report),
+      emit: (report) => {
+        sendToRenderer('recovery:report', report)
+        // Reuniões recuperadas mudaram de estado no disco.
+        if (!report.running && report.checkedAt !== null) {
+          void libraryIndex.reconcile({ force: true })
+        }
+      },
       now: () => Date.now(),
       log
     })
@@ -281,7 +314,10 @@ if (!app.requestSingleInstanceLock()) {
     const summary = new SummaryService({
       meetingsDir,
       router: textRouter,
-      emit: (event) => sendToRenderer('summary:changed', event),
+      emit: (event) => {
+        sendToRenderer('summary:changed', event)
+        libraryIndex.onSummaryChanged(event)
+      },
       now: () => Date.now(),
       log
     })
@@ -302,7 +338,10 @@ if (!app.requestSingleInstanceLock()) {
       model: () => settings.get().transcriptionModel,
       createClient: (key) => new GeminiClient(key, { log }),
       tempRoot: tmpdir(),
-      emit: (event) => sendToRenderer('transcript:changed', event),
+      emit: (event) => {
+        sendToRenderer('transcript:changed', event)
+        libraryIndex.onTranscriptChanged(event)
+      },
       onReady: (folder, summaryRequested) => {
         if (summaryRequested) void summary.startAfterTranscript(folder)
       },
@@ -310,6 +349,8 @@ if (!app.requestSingleInstanceLock()) {
       log
     })
     await transcription.recoverInterrupted()
+    // Depois das recuperações acima, que corrigem estados no `meeting.json`.
+    libraryIndex.start()
 
     const preflight = async (): Promise<PreflightInfo> => {
       const dir = meetingsDir()
@@ -320,6 +361,16 @@ if (!app.requestSingleInstanceLock()) {
         disk: assessDisk(freeBytes),
         ffmpegAvailable: (await getTools()) !== null
       }
+    }
+
+    /** Depois de uma edição que deu certo, o índice relê a pasta (a edição já está no disco). */
+    const afterEdit = async <T extends { ok: boolean }>(
+      folder: string,
+      edit: Promise<T>
+    ): Promise<T> => {
+      const result = await edit
+      if (result.ok) void libraryIndex.refresh(folder)
+      return result
     }
 
     registerIpcHandlers(
@@ -358,16 +409,23 @@ if (!app.requestSingleInstanceLock()) {
           const result = await renameMeeting(meetingsDir(), folder, name)
           if (result.ok) {
             service.updateFinished({ folder: result.value.folder, name: result.value.name }, folder)
+            void libraryIndex.refresh(result.value.folder)
           }
           return result
         },
         revealMeeting: async (folder) => {
           if (isDirectChild(meetingsDir(), folder)) await shell.openPath(folder)
         },
+        library: {
+          search: (query) => libraryIndex.search(query),
+          refresh: () => {
+            void libraryIndex.reconcile()
+            return Promise.resolve()
+          }
+        },
         meetings: {
-          list: () => listMeetings(meetingsDir(), service.activeFolder()),
           get: async (id) => {
-            const folder = await findMeetingFolder(meetingsDir(), id)
+            const folder = await libraryIndex.folderFor(id)
             if (!folder) {
               return {
                 ok: false,
@@ -382,10 +440,11 @@ if (!app.requestSingleInstanceLock()) {
             )
           },
           addNote: (folder, offsetMs, text) =>
-            addMeetingNote(meetingsDir(), folder, { offsetMs, text }),
+            afterEdit(folder, addMeetingNote(meetingsDir(), folder, { offsetMs, text })),
           updateNote: (folder, noteId, text) =>
-            editMeetingNote(meetingsDir(), folder, noteId, text),
-          deleteNote: (folder, noteId) => deleteMeetingNote(meetingsDir(), folder, noteId)
+            afterEdit(folder, editMeetingNote(meetingsDir(), folder, noteId, text)),
+          deleteNote: (folder, noteId) =>
+            afterEdit(folder, deleteMeetingNote(meetingsDir(), folder, noteId))
         },
         transcript: {
           get: async (folder) => {
@@ -421,10 +480,13 @@ if (!app.requestSingleInstanceLock()) {
                 }
               }
             }
-            return renameTranscriptSpeaker(
+            return afterEdit(
               folder,
-              String(speakerId),
-              typeof name === 'string' ? name : ''
+              renameTranscriptSpeaker(
+                folder,
+                String(speakerId),
+                typeof name === 'string' ? name : ''
+              )
             )
           },
           cancel: (folder) => transcription.cancel(folder)
@@ -489,7 +551,12 @@ if (!app.requestSingleInstanceLock()) {
         },
         settings: {
           view: () => settings.view(),
-          update: (patch) => settings.update(patch)
+          update: async (patch) => {
+            const before = meetingsDir()
+            const view = await settings.update(patch)
+            if (meetingsDir() !== before) void libraryIndex.reconcile({ force: true })
+            return view
+          }
         },
         recovery: { getReport: () => recovery.getReport(), retry: () => recovery.run() },
         floating: {
@@ -504,7 +571,10 @@ if (!app.requestSingleInstanceLock()) {
       })
     )
 
-    app.on('will-quit', () => globalShortcut.unregisterAll())
+    app.on('will-quit', () => {
+      globalShortcut.unregisterAll()
+      void libraryIndex.close()
+    })
 
     // Fechar o app com a gravação em andamento: para, finaliza e só então sai.
     app.on('before-quit', (event) => {

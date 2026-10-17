@@ -60,8 +60,12 @@ function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
     renameMeeting: (folder, name) =>
       Promise.resolve({ ok: true, value: { folder, name, folderRenamed: true } }),
     revealMeeting: () => Promise.resolve(),
+    library: {
+      search: () =>
+        Promise.resolve({ entries: [], total: 0, indexed: 0, skipped: 0, updating: false }),
+      refresh: () => Promise.resolve()
+    },
     meetings: {
-      list: () => Promise.resolve({ items: [], skipped: 0 }),
       get: () =>
         Promise.resolve({ ok: false, error: { code: 'not-found', message: 'não existe' } }),
       addNote: () =>
@@ -176,8 +180,18 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
   it('os canais das Reuniões e Anotações chegam aos handlers', async () => {
     const { api } = createWiredApi(
       fakeDeps({
+        library: {
+          search: (query) =>
+            Promise.resolve({
+              entries: [],
+              total: query.text.length,
+              indexed: 3,
+              skipped: 2,
+              updating: false
+            }),
+          refresh: () => Promise.resolve()
+        },
         meetings: {
-          list: () => Promise.resolve({ items: [], skipped: 2 }),
           get: (id) =>
             Promise.resolve({ ok: false, error: { code: 'not-found', message: `sem ${id}` } }),
           addNote: (folder, offsetMs, text) =>
@@ -193,7 +207,16 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
         }
       })
     )
-    expect(await api.invoke('meetings:list')).toEqual({ items: [], skipped: 2 })
+    expect(
+      await api.invoke('library:search', {
+        text: 'abc',
+        fromMs: null,
+        toMs: null,
+        sort: 'newest',
+        limit: null
+      })
+    ).toEqual({ entries: [], total: 3, indexed: 3, skipped: 2, updating: false })
+    expect(await api.invoke('library:refresh')).toBeNull()
     expect(await api.invoke('meeting:get', { id: 'abc' })).toEqual({
       ok: false,
       error: { code: 'not-found', message: 'sem abc' }
@@ -239,6 +262,7 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
     expect(Object.keys(IPC_EVENTS).sort()).toEqual([
       'chat:event',
       'floating:info',
+      'library:changed',
       'notes:opened',
       'notes:saved',
       'recording:level',

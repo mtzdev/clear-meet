@@ -16,7 +16,7 @@ import { issueText, LOCK_TEXT } from '@/lib/meeting-text'
 import { useMeetingDetail } from '@/lib/meetings'
 import { PlayerController } from '@/lib/player-controller'
 import { useRecordingState } from '@/lib/recording'
-import { useMeetingId } from '@/lib/router'
+import { useMeetingId, useMeetingStart } from '@/lib/router'
 import { useSummaryView } from '@/lib/summary'
 import { useTranscriptView } from '@/lib/transcript'
 import { usePlayerShortcuts } from '@/lib/use-player-shortcuts'
@@ -29,6 +29,7 @@ const RELEASE_DELAY_MS = 300
 /** Detalhe de uma Reunião: player com Anotações na linha do tempo e painel de abas. */
 export function MeetingScreen() {
   const id = useMeetingId()
+  const startMs = useMeetingStart()
   if (!id) {
     return (
       <Screen title="Reunião">
@@ -45,10 +46,10 @@ export function MeetingScreen() {
       </Screen>
     )
   }
-  return <MeetingLoader key={id} id={id} />
+  return <MeetingLoader key={id} id={id} startMs={startMs} />
 }
 
-function MeetingLoader({ id }: { id: string }) {
+function MeetingLoader({ id, startMs }: { id: string; startMs: number | null }) {
   // A Reunião é relida quando a gravação muda de fase (ex.: terminou e deixou de estar bloqueada).
   const phase = useRecordingState().phase
   const { state, reload, updateNotes } = useMeetingDetail(id, phase)
@@ -78,7 +79,14 @@ function MeetingLoader({ id }: { id: string }) {
       </Screen>
     )
   }
-  return <MeetingView detail={state.detail} reload={reload} updateNotes={updateNotes} />
+  return (
+    <MeetingView
+      detail={state.detail}
+      startMs={startMs}
+      reload={reload}
+      updateNotes={updateNotes}
+    />
+  )
 }
 
 function pickMedia(detail: MeetingDetail, suspended: boolean): PlayerMedia {
@@ -108,14 +116,22 @@ function playerText(detail: MeetingDetail): string {
 
 function MeetingView({
   detail,
+  startMs,
   reload,
   updateNotes
 }: {
   detail: MeetingDetail
+  /** Instante em que o player abre (vindo de um trecho achado na busca). */
+  startMs: number | null
   reload: () => Promise<void>
   updateNotes: (update: (notes: MeetingDetail['notes']) => MeetingDetail['notes']) => void
 }) {
-  const [controller] = useState(() => new PlayerController(detail.durationMs))
+  const [controller] = useState(() => {
+    const created = new PlayerController(detail.durationMs)
+    // O pedido de seek fica guardado até o arquivo carregar.
+    if (startMs !== null) created.seekToMs(startMs)
+    return created
+  })
   const [suspended, setSuspended] = useState(false)
   const [folderNotice, setFolderNotice] = useState(false)
   usePlayerShortcuts(controller, true)

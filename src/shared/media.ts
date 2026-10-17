@@ -57,3 +57,30 @@ export function parseMediaUrl(url: string): ParsedMediaUrl | null {
   if (!isPlainFolderName(folderName) || !isMediaFileName(file)) return null
   return { folderName, file }
 }
+
+const THUMBNAIL_HOST = 'thumbnail'
+const THUMBNAIL_NAME = /^[A-Za-z0-9_-]{1,80}\.jpg$/
+
+/** Nome do arquivo da miniatura da Reunião `id` (o `id` vem do `meeting.json`, então é saneado). */
+export function thumbnailFileName(id: string): string {
+  return `${id.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80) || '_'}.jpg`
+}
+
+/** URL da miniatura; `version` muda quando ela é gerada de novo, para o cache não servir a antiga. */
+export function thumbnailUrl(id: string, version: number): string {
+  return `${MEDIA_SCHEME}://${THUMBNAIL_HOST}/${thumbnailFileName(id)}?v=${Math.trunc(version)}`
+}
+
+/** Nome do arquivo pedido numa URL de miniatura, ou `null` se a URL não é uma. */
+export function parseThumbnailUrl(url: string): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== `${MEDIA_SCHEME}:` || parsed.hostname !== THUMBNAIL_HOST) return null
+  const segments = parsed.pathname.split('/')
+  const name = segments.length === 2 && segments[0] === '' ? (segments[1] ?? '') : ''
+  return THUMBNAIL_NAME.test(name) ? name : null
+}
