@@ -9,7 +9,7 @@ import {
   type ParseResult
 } from '@shared/meeting'
 import type { RecordingError, RenamedMeeting, Result } from '@shared/recording'
-import { renameWithRetry, writeFileAtomic } from '../fs/atomic'
+import { renameWithRetry, retryTransient, writeFileAtomic } from '../fs/atomic'
 import { meetingFolderBase, sanitizeName, withSuffix } from './folder-name'
 
 export function newMeetingId(): string {
@@ -46,7 +46,8 @@ export function withFolderLock<T>(folder: string, task: () => Promise<T>): Promi
 export async function readMeeting(folder: string): Promise<ParseResult<MeetingFile>> {
   let text: string
   try {
-    text = await readFile(join(folder, MEETING_FILE), 'utf8')
+    // O antivírus pode segurar o arquivo por instantes logo depois de uma escrita atômica.
+    text = await retryTransient(() => readFile(join(folder, MEETING_FILE), 'utf8'), 4, 50)
   } catch {
     return { ok: false, error: MEETING_NOT_FOUND }
   }

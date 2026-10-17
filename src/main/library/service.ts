@@ -225,6 +225,22 @@ export class LibraryService {
     }
   }
 
+  /** Todas as Reuniões iniciadas antes de `cutoffMs`, da mais antiga à mais nova (Limpeza). */
+  async olderThan(cutoffMs: number): Promise<MeetingListItem[]> {
+    const db = await this.open()
+    if (!db) throw new Error(UNAVAILABLE)
+    const root = this.deps.meetingsDir()
+    const active = this.deps.activeFolder()
+    const { rows } = db.query({
+      fts: null,
+      fromMs: null,
+      toMs: cutoffMs,
+      sort: 'oldest',
+      limit: Number.MAX_SAFE_INTEGER
+    })
+    return rows.map((row) => toItem(row, root, active))
+  }
+
   /**
    * Pasta da Reunião `id`. O índice responde na hora; se a pasta sumiu ou mudou de dono, varre
    * as pastas (a fonte da verdade) antes de desistir.
@@ -479,6 +495,7 @@ function toItem(row: StoredMeeting, root: string, active: string | null): Meetin
     transcriptStatus: row.transcriptStatus,
     summaryStatus: row.summaryStatus,
     hasVideo: row.hasVideo,
+    compactionStatus: row.compactionStatus,
     thumbnail: hasThumbnail ? thumbnailUrl(row.id, row.thumbAt) : null
   }
 }

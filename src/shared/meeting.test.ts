@@ -121,6 +121,30 @@ describe('meeting.json: ida e volta', () => {
     expect(parsed.ok && parsed.value.transcript).toBeUndefined()
   })
 
+  it('video.compaction: arquivo antigo (sem o bloco) continua legível; o bloco volta idêntico', () => {
+    const old = parseMeeting(JSON.parse(serializeMeeting(meeting())))
+    expect(old.ok && old.value.video?.compaction).toBeUndefined()
+
+    const compaction = {
+      status: 'done' as const,
+      codec: 'av1',
+      encoder: 'libsvtav1',
+      originalBytes: 1000,
+      finalBytes: 300,
+      updatedAt: '2026-10-16T12:00:00.000Z'
+    }
+    const withBlock = meeting({
+      video: { file: 'video.mp4', width: 1920, height: 1080, fps: 15, compaction }
+    })
+    const parsed = parseMeetingText(serializeMeeting(withBlock))
+    expect(parsed).toEqual({ ok: true, value: withBlock })
+
+    const broken = JSON.parse(serializeMeeting(withBlock)) as { video: { compaction: unknown } }
+    broken.video.compaction = { status: 'quase' }
+    const ignored = parseMeeting(broken)
+    expect(ignored.ok && ignored.value.video?.compaction).toBeUndefined()
+  })
+
   it('issues: ausente vale lista vazia (arquivos antigos); ocorrências são preservadas', () => {
     const raw = JSON.parse(serializeMeeting(meeting())) as Record<string, unknown>
     delete raw.issues

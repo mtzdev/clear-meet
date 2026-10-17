@@ -15,6 +15,7 @@ import {
   shell
 } from 'electron'
 import { API_KEY_LINKS, isAiProvider } from '@shared/ai'
+import { parseCleanupRequest } from '@shared/cleanup'
 import type { IpcEventName, IpcEventPayload } from '@shared/ipc'
 import { MEDIA_SCHEME } from '@shared/media'
 import {
@@ -32,6 +33,9 @@ import { testApiKey } from './ai/test-key'
 import { geminiBackend, groqBackend } from './ai/text/backends'
 import { TextRouter } from './ai/text/router'
 import { TranscriptionService } from './ai/transcription/service'
+import { CleanupService } from './cleanup/service'
+import { Av1EncoderDetector } from './compaction/encoders'
+import { CompactionService } from './compaction/service'
 import { getFfmpegStatus, type StatusOptions } from './ffmpeg'
 import { resolveFfmpegTools } from './ffmpeg/media'
 import { freeDiskBytes } from './fs/atomic'
@@ -49,7 +53,7 @@ import { loadSqlite } from './library/sqlite'
 import { createMediaHandler } from './media/handler'
 import { loadMeetingDetail } from './meetings/library'
 import { addMeetingNote, deleteMeetingNote, editMeetingNote } from './meetings/notes-store'
-import { deleteMeetingFolder } from './meetings/delete'
+import { trashMeetingFolder, trashMeetingVideo } from './meetings/trash'
 import { sameFolder } from './meetings/paths'
 import { isDirectChild, renameMeeting } from './meetings/repository'
 import { readSummary } from './meetings/summary-store'
@@ -133,6 +137,7 @@ if (!app.requestSingleInstanceLock()) {
   let recording: RecordingService | null = null
   let floating: FloatingController | null = null
   let library: LibraryService | null = null
+  let compaction: CompactionService | null = null
 
   /** Traz a janela principal para a frente (ela fica oculta enquanto a barra flutuante grava). */
   const showMainWindow = (): void => {
@@ -208,6 +213,7 @@ if (!app.requestSingleInstanceLock()) {
       if (event === 'recording:state') {
         floating?.onRecordingState(payload as RecordingState)
         library?.onRecordingState(payload as RecordingState)
+        compaction?.onRecordingState(payload as RecordingState)
       }
     }
 
@@ -252,6 +258,23 @@ if (!app.requestSingleInstanceLock()) {
       log
     })
     library = libraryIndex
+
+    // Em automação de desenvolvimento o Vídeo gravado fica como saiu do gravador.
+    const automation = !app.isPackaged && Boolean(process.env['CLEARMEET_AUTOMATION'])
+    const compactor = new CompactionService({
+      meetingsDir,
+      getTools,
+      enabled: () => settings.get().compaction && !automation,
+      mode: () => settings.get().compactionMode,
+      // Como as miniaturas, a Compactação espera a gravação terminar.
+      canRun: () => !service.isBusy(),
+      detector: new Av1EncoderDetector(),
+      emit: (event) => sendToRenderer('compaction:changed', event),
+      onFolderChanged: (folder) => void libraryIndex.refresh(folder),
+      now: () => Date.now(),
+      log
+    })
+    compaction = compactor
 
     floating = new FloatingController({
       recording: service,
@@ -302,6 +325,7 @@ if (!app.requestSingleInstanceLock()) {
         // Reuniões recuperadas mudaram de estado no disco.
         if (!report.running && report.checkedAt !== null) {
           void libraryIndex.reconcile({ force: true })
+          void compactor.scan()
         }
       },
       now: () => Date.now(),
@@ -357,6 +381,7 @@ if (!app.requestSingleInstanceLock()) {
     await transcription.recoverInterrupted()
     // Depois das recuperações acima, que corrigem estados no `meeting.json`.
     libraryIndex.start()
+    void compactor.start()
 
     const preflight = async (): Promise<PreflightInfo> => {
       const dir = meetingsDir()
@@ -368,6 +393,33 @@ if (!app.requestSingleInstanceLock()) {
         ffmpegAvailable: (await getTools()) !== null
       }
     }
+
+    /** Gravando, com IA em andamento ou compactando: mexer na pasta agora atrapalharia o app. */
+    const isFolderBusy = (folder: string): boolean => {
+      const recordingFolder = service.activeFolder()
+      return (
+        transcription.isActive(folder) ||
+        summary.isActive(folder) ||
+        chat.isActive(folder) ||
+        compactor.isActive(folder) ||
+        (recordingFolder !== null && sameFolder(folder, recordingFolder))
+      )
+    }
+
+    const cleanup = new CleanupService({
+      olderThan: (cutoffMs) => libraryIndex.olderThan(cutoffMs),
+      meetingsDir,
+      isBusy: isFolderBusy,
+      trash: (path) => shell.trashItem(path),
+      refresh: (folder) => libraryIndex.refresh(folder),
+      now: () => Date.now(),
+      log
+    })
+
+    const INVALID_CLEANUP = {
+      ok: false,
+      error: { code: 'invalid-request', message: 'Pedido inválido.' }
+    } as const
 
     /** Depois de uma edição que deu certo, o índice relê a pasta (a edição já está no disco). */
     const afterEdit = async <T extends { ok: boolean }>(
@@ -412,6 +464,15 @@ if (!app.requestSingleInstanceLock()) {
               error: { code: 'busy', message: 'A Reunião ainda está sendo gravada.' }
             }
           }
+          if (compactor.isActive(folder)) {
+            return {
+              ok: false,
+              error: {
+                code: 'busy',
+                message: 'O Vídeo está sendo compactado. Renomeie quando terminar.'
+              }
+            }
+          }
           const result = await renameMeeting(meetingsDir(), folder, name)
           if (result.ok) {
             service.updateFinished({ folder: result.value.folder, name: result.value.name }, folder)
@@ -426,26 +487,50 @@ if (!app.requestSingleInstanceLock()) {
               error: { code: 'invalid-request', message: 'Pedido inválido.' }
             }
           }
-          const recordingFolder = service.activeFolder()
-          if (
-            transcription.isActive(folder) ||
-            summary.isActive(folder) ||
-            chat.isActive(folder) ||
-            (recordingFolder !== null && sameFolder(folder, recordingFolder))
-          ) {
+          if (isFolderBusy(folder)) {
             return {
               ok: false,
               error: {
                 code: 'busy',
-                message: 'A Reunião está em uso (gravação ou IA). Exclua quando terminar.'
+                message:
+                  'A Reunião está em uso (gravação, IA ou Compactação). Exclua quando terminar.'
               }
             }
           }
-          const result = await deleteMeetingFolder(meetingsDir(), folder)
+          const result = await trashMeetingFolder(meetingsDir(), folder, (path) =>
+            shell.trashItem(path)
+          )
           if (result.ok) service.clearFinished(folder)
           // O índice relê a pasta: some se foi excluída e reflete o que sobrou se a exclusão falhou.
           await libraryIndex.refresh(folder)
           return result
+        },
+        deleteMeetingVideo: async (folder) => {
+          if (typeof folder === 'string' && isFolderBusy(folder)) {
+            return {
+              ok: false,
+              error: {
+                code: 'busy',
+                message: 'A Reunião está em uso (gravação ou Compactação). Tente quando terminar.'
+              }
+            }
+          }
+          const result = await trashMeetingVideo(meetingsDir(), folder, (path) =>
+            shell.trashItem(path)
+          )
+          await libraryIndex.refresh(folder)
+          return result
+        },
+        retryCompaction: (folder) => compactor.retry(folder),
+        cleanup: {
+          preview: (request) => {
+            const parsed = parseCleanupRequest(request)
+            return parsed ? cleanup.preview(parsed) : Promise.resolve(INVALID_CLEANUP)
+          },
+          run: (request) => {
+            const parsed = parseCleanupRequest(request)
+            return parsed ? cleanup.run(parsed) : Promise.resolve(INVALID_CLEANUP)
+          }
         },
         revealMeeting: async (folder) => {
           if (isDirectChild(meetingsDir(), folder)) await shell.openPath(folder)
@@ -598,6 +683,7 @@ if (!app.requestSingleInstanceLock()) {
             const before = meetingsDir()
             const view = await settings.update(patch)
             if (meetingsDir() !== before) void libraryIndex.reconcile({ force: true })
+            if (patch.compaction !== undefined) compactor.onSettingsChanged()
             return view
           }
         },
@@ -615,6 +701,7 @@ if (!app.requestSingleInstanceLock()) {
     )
 
     app.on('will-quit', () => {
+      compactor.abortAll()
       globalShortcut.unregisterAll()
       void libraryIndex.close()
     })

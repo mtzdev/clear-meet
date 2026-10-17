@@ -71,6 +71,7 @@ export async function loadMeetingDetail(
       source: meeting.source,
       hasVideoFile,
       hasAudioFile,
+      compactionStatus: meeting.video?.compaction?.status ?? 'none',
       hasAudioInput: hasAudioInput(meeting.inputs),
       videoAspect: videoAspect(meeting),
       notes: [...meeting.notes].sort((a, b) => a.offsetMs - b.offsetMs),

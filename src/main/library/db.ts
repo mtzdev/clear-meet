@@ -1,4 +1,5 @@
 import { rmSync } from 'node:fs'
+import type { ListCompaction } from '@shared/compaction'
 import type { CaptureSourceKind, MeetingStatus } from '@shared/meeting'
 import type { HitKind, LibrarySort } from '@shared/library'
 import type { SummaryStatus } from '@shared/summary'
@@ -6,7 +7,7 @@ import type { TranscriptStatus } from '@shared/transcript'
 import type { Database, SqliteModule } from './sqlite'
 
 /** Muda quando o formato do índice muda: o índice antigo é descartado e reconstruído das pastas. */
-export const LIBRARY_SCHEMA_VERSION = 1
+export const LIBRARY_SCHEMA_VERSION = 2
 
 export const IN_MEMORY = ':memory:'
 
@@ -26,6 +27,7 @@ export interface MeetingRow {
   transcriptStatus: TranscriptStatus
   summaryStatus: SummaryStatus
   hasVideo: boolean
+  compactionStatus: ListCompaction
   /** Tamanho e data do `video.mp4`; muda quando o Vídeo é trocado ou apagado. */
   videoSig: string | null
   /** Tamanho e data dos arquivos da pasta no momento da leitura: mudou, reindexa. */
@@ -91,6 +93,7 @@ CREATE TABLE meetings (
   transcript_status TEXT NOT NULL,
   summary_status TEXT NOT NULL,
   has_video INTEGER NOT NULL,
+  compaction_status TEXT NOT NULL DEFAULT 'none',
   video_sig TEXT,
   signature TEXT NOT NULL,
   thumb_sig TEXT,
@@ -130,7 +133,7 @@ END;
 
 const MEETING_COLUMNS = `id, folder_name, name, created_at, created_ms, duration_ms, status,
   source_kind, source_name, size_bytes, note_count, transcript_status, summary_status, has_video,
-  video_sig, signature`
+  compaction_status, video_sig, signature`
 
 function toStored(row: Row): StoredMeeting {
   return {
@@ -148,6 +151,7 @@ function toStored(row: Row): StoredMeeting {
     transcriptStatus: row['transcript_status'] as TranscriptStatus,
     summaryStatus: row['summary_status'] as SummaryStatus,
     hasVideo: row['has_video'] === 1,
+    compactionStatus: row['compaction_status'] as ListCompaction,
     videoSig: (row['video_sig'] as string | null) ?? null,
     signature: row['signature'] as string,
     thumbSig: (row['thumb_sig'] as string | null) ?? null,
@@ -289,7 +293,7 @@ export class LibraryDb {
       this.run('DELETE FROM skipped WHERE folder_name = ?', [row.folderName])
       this.run(
         `INSERT INTO meetings (${MEETING_COLUMNS})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO UPDATE SET
            folder_name = excluded.folder_name, name = excluded.name,
            created_at = excluded.created_at, created_ms = excluded.created_ms,
@@ -297,7 +301,8 @@ export class LibraryDb {
            source_kind = excluded.source_kind, source_name = excluded.source_name,
            size_bytes = excluded.size_bytes, note_count = excluded.note_count,
            transcript_status = excluded.transcript_status, summary_status = excluded.summary_status,
-           has_video = excluded.has_video, video_sig = excluded.video_sig,
+           has_video = excluded.has_video, compaction_status = excluded.compaction_status,
+           video_sig = excluded.video_sig,
            signature = excluded.signature`,
         [
           row.id,
@@ -314,6 +319,7 @@ export class LibraryDb {
           row.transcriptStatus,
           row.summaryStatus,
           row.hasVideo ? 1 : 0,
+          row.compactionStatus,
           row.videoSig,
           row.signature
         ]

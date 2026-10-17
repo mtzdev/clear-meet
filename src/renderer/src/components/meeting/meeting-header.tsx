@@ -1,4 +1,4 @@
-import { ChevronLeft, FolderOpen, LoaderCircle, Pencil } from 'lucide-react'
+import { ChevronLeft, FolderOpen, LoaderCircle, Pencil, VideoOff } from 'lucide-react'
 import { useRef, useState, type FormEvent } from 'react'
 import { SourceIcon } from '@/components/meeting/source-icon'
 import { Button } from '@/components/ui/button'
@@ -13,9 +13,11 @@ interface MeetingHeaderProps {
   detail: MeetingDetail
   canRename: boolean
   onRename: (name: string) => Promise<string | null>
+  /** Ação "Apagar só o vídeo"; `blockedReason` desabilita o botão e explica o motivo. */
+  deleteVideo: { blockedReason: string | null; onClick: () => void } | null
 }
 
-export function MeetingHeader({ detail, canRename, onRename }: MeetingHeaderProps) {
+export function MeetingHeader({ detail, canRename, onRename, deleteVideo }: MeetingHeaderProps) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(detail.name)
   const [saving, setSaving] = useState(false)
@@ -116,6 +118,18 @@ export function MeetingHeader({ detail, canRename, onRename }: MeetingHeaderProp
         </p>
       </div>
 
+      {deleteVideo && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={deleteVideo.blockedReason !== null}
+          title={deleteVideo.blockedReason ?? undefined}
+          onClick={deleteVideo.onClick}
+        >
+          <VideoOff aria-hidden />
+          <span className="hidden min-[1000px]:inline">Apagar só o vídeo</span>
+        </Button>
+      )}
       <Button
         variant="outline"
         size="sm"

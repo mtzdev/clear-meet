@@ -1,5 +1,7 @@
 import type { AiProvider, AiStatus, KeyTestResult } from './ai'
 import type { ChatEvent, ChatSent, ChatState } from './chat'
+import type { CleanupPreview, CleanupRequest, CleanupResult } from './cleanup'
+import type { CompactionChangedEvent } from './compaction'
 import type { FfmpegStatus } from './ffmpeg'
 import type { FloatingInfo, NoteSavedEvent } from './floating'
 import type { LibraryQuery, LibraryResult, MeetingDetail } from './library'
@@ -44,8 +46,16 @@ export interface IpcContract {
   /** Renomeia a Reunião no `meeting.json` e, se possível, a pasta. */
   'meeting:rename': { request: { folder: string; name: string }; response: Result<RenamedMeeting> }
   'meeting:reveal': { request: { folder: string }; response: null }
-  /** Exclui a Reunião de forma definitiva: a pasta inteira, o índice e a miniatura. */
+  /** Envia a Reunião inteira (a pasta) para a Lixeira; o índice e a miniatura saem junto. */
   'meeting:delete': { request: { folder: string }; response: Result<null> }
+  /** Manda só o Vídeo para a Lixeira; a Reunião continua navegável pelo Áudio da reunião. */
+  'meeting:deleteVideo': { request: { folder: string }; response: Result<{ freedBytes: number }> }
+  /** Tenta de novo a Compactação de uma Reunião cuja última tentativa falhou. */
+  'compaction:retry': { request: { folder: string }; response: Result<null> }
+  /** Quantas Reuniões e quanto espaço a Limpeza liberaria com este filtro (calculado nos arquivos). */
+  'cleanup:preview': { request: CleanupRequest; response: Result<CleanupPreview> }
+  /** Executa a Limpeza: envia para a Lixeira o que a prévia mostrou. */
+  'cleanup:run': { request: CleanupRequest; response: Result<CleanupResult> }
   /** Anotações de uma Reunião pelo `id`, ordenadas por Instante (prévia na lista). */
   'library:notes': { request: { id: string }; response: Result<MeetingNote[]> }
   /** Lista e busca de Reuniões no índice (nome, conteúdo, datas, ordenação). */
@@ -133,6 +143,8 @@ export interface IpcEventContract {
   'summary:changed': SummaryChangedEvent
   /** Resposta da Conversa chegando, concluída ou com erro. */
   'chat:event': ChatEvent
+  /** A Compactação de uma Reunião mudou de estado ou avançou. */
+  'compaction:changed': CompactionChangedEvent
   /** O índice da Biblioteca mudou: telas com lista de Reuniões consultam de novo. */
   'library:changed': null
 }
@@ -177,6 +189,10 @@ export const IPC_CHANNELS = {
   'meeting:rename': true,
   'meeting:reveal': true,
   'meeting:delete': true,
+  'meeting:deleteVideo': true,
+  'compaction:retry': true,
+  'cleanup:preview': true,
+  'cleanup:run': true,
   'library:notes': true,
   'library:search': true,
   'library:refresh': true,
@@ -223,6 +239,7 @@ export const IPC_EVENTS = {
   'transcript:changed': true,
   'summary:changed': true,
   'chat:event': true,
+  'compaction:changed': true,
   'library:changed': true
 } as const satisfies Record<IpcEventName, true>
 

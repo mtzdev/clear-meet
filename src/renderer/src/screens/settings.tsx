@@ -2,6 +2,7 @@ import { CircleCheck, LoaderCircle, TriangleAlert } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Screen } from '@/components/layout/screen'
 import { AiSection } from '@/components/settings/ai-section'
+import { CompactionSection } from '@/components/settings/compaction-section'
 import { useIpcQuery } from '@/lib/ipc'
 import type { FfmpegSource, FfmpegStatus } from '@shared/ffmpeg'
 
@@ -142,6 +143,9 @@ export function SettingsScreen() {
         </Section>
         <Section title="IA">
           <AiSection />
+        </Section>
+        <Section title="Compactação">
+          <CompactionSection />
         </Section>
         <Section title="Sistema">
           <VersionRow />

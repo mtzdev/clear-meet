@@ -1,7 +1,8 @@
-import { Library, SearchX, TriangleAlert } from 'lucide-react'
+import { HardDrive, Library, SearchX, TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { EmptyState } from '@/components/empty-state'
 import { Screen } from '@/components/layout/screen'
+import { CleanupDialog } from '@/components/library/cleanup-dialog'
 import { LibraryFilters } from '@/components/library/filters'
 import { MeetingCard } from '@/components/library/meeting-card'
 import { Button } from '@/components/ui/button'
@@ -21,6 +22,7 @@ export function MeetingsScreen() {
   const [text, setText] = useState('')
   const [date, setDate] = useState<DateFilter>(NO_DATE_FILTER)
   const [sortChoice, setSortChoice] = useState<LibrarySort | null>(null)
+  const [cleaning, setCleaning] = useState(false)
 
   // Pastas mexidas fora do app aparecem ao abrir a tela.
   useEffect(() => {
@@ -57,7 +59,16 @@ export function MeetingsScreen() {
   }
 
   return (
-    <Screen title="Reuniões">
+    <Screen
+      title="Reuniões"
+      actions={
+        <Button variant="outline" size="sm" onClick={() => setCleaning(true)}>
+          <HardDrive aria-hidden />
+          Liberar espaço
+        </Button>
+      }
+    >
+      <CleanupDialog open={cleaning} onOpenChange={setCleaning} />
       <div className="bg-background/95 border-border sticky top-0 z-20 border-b backdrop-blur">
         <div className="mx-auto max-w-4xl px-8 py-4">
           <LibraryFilters

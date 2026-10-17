@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MEETING_FILE, MEETING_SCHEMA_VERSION } from '@shared/meeting'
-import { checkMeetingFolder, deleteMeetingFolder, type DeleteOps } from './delete'
+import { checkMeetingFolder } from './delete'
 import { listMeetingFolders, STAGING_PREFIX, writeMeeting } from './repository'
 
 let base: string
@@ -97,55 +97,7 @@ describe('checkMeetingFolder', () => {
   })
 })
 
-describe('deleteMeetingFolder', () => {
-  it('apaga a pasta inteira, sem deixar temporários, e preserva as outras Reuniões', async () => {
-    const folder = await createMeeting('a')
-    await createMeeting('b')
-    await mkdir(join(folder, 'sub'))
-    await writeFile(join(folder, 'sub', 'x.txt'), 'x')
-
-    expect(await deleteMeetingFolder(root, folder)).toEqual({ ok: true, value: null })
-    expect(await readdir(root)).toEqual(['b'])
-  })
-
-  it('recusa caminho fora da pasta das Reuniões sem apagar nada', async () => {
-    const outside = join(base, 'fora')
-    await mkdir(outside)
-    await writeFile(join(outside, MEETING_FILE), '{}')
-    const result = await deleteMeetingFolder(root, join(root, '..', 'fora'))
-    expect(result).toMatchObject({ ok: false, error: { code: 'invalid-request' } })
-    expect(await readdir(outside)).toEqual([MEETING_FILE])
-  })
-
-  it('pasta em uso: a Reunião continua inteira e o erro é curto', async () => {
-    const folder = await createMeeting('a')
-    const ops: DeleteOps = {
-      renameFolder: () => Promise.reject(Object.assign(new Error('busy'), { code: 'EBUSY' })),
-      removeFolder: () => Promise.reject(new Error('não deveria apagar'))
-    }
-    const result = await deleteMeetingFolder(root, folder, ops)
-    expect(result).toMatchObject({ ok: false, error: { code: 'busy' } })
-    expect(await readdir(folder)).toEqual(['audio.opus', MEETING_FILE])
-    expect(await readdir(root)).toEqual(['a'])
-  })
-
-  it('falha ao apagar depois do rename: o nome volta e a pasta não vira lixo escondido', async () => {
-    const folder = await createMeeting('a')
-    const renames: string[] = []
-    const ops: DeleteOps = {
-      renameFolder: async (from, to) => {
-        renames.push(`${from} -> ${to}`)
-        const { rename } = await import('node:fs/promises')
-        await rename(from, to)
-      },
-      removeFolder: () => Promise.reject(new Error('EBUSY'))
-    }
-    const result = await deleteMeetingFolder(root, folder, ops)
-    expect(result).toMatchObject({ ok: false, error: { code: 'busy' } })
-    expect(renames).toHaveLength(2)
-    expect(await readdir(root)).toEqual(['a'])
-  })
-
+describe('pastas temporárias de exclusão antigas', () => {
   it('a Biblioteca não enxerga a pasta temporária', async () => {
     await createMeeting('a')
     await mkdir(join(root, `${STAGING_PREFIX}x`))

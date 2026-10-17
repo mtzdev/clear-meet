@@ -1,4 +1,5 @@
 import { isQualityPreset, type QualityPreset } from './capture'
+import { parseCompactionMeta, type CompactionMeta } from './compaction'
 import { parseSummaryMeta, type SummaryMeta } from './summary'
 import { parseTranscriptMeta, type TranscriptMeta } from './transcript'
 
@@ -14,7 +15,9 @@ export const MEETING_FILES = {
   audio: 'audio.opus',
   /** Pedaços gravados ao vivo; viram `video.mp4` / `audio.opus` no pós-gravação. */
   videoPart: 'video.part.mp4',
-  audioPart: 'audio.part.webm'
+  audioPart: 'audio.part.webm',
+  /** Vídeo compactado em construção; só vira `video.mp4` depois de validado. */
+  videoCompacting: 'video.compacting.mp4'
 } as const
 
 /**
@@ -60,6 +63,8 @@ export interface MeetingVideoInfo {
   width: number
   height: number
   fps: number
+  /** Estado da Compactação; ausente = ainda não compactado. */
+  compaction?: CompactionMeta
 }
 
 export interface MeetingFile {
@@ -161,7 +166,15 @@ function parseVideo(value: unknown): MeetingVideoInfo | null | string {
   ) {
     return 'video: esperado null ou { file, width, height, fps }'
   }
-  return { file: value.file, width: value.width, height: value.height, fps: value.fps }
+  const video: MeetingVideoInfo = {
+    file: value.file,
+    width: value.width,
+    height: value.height,
+    fps: value.fps
+  }
+  const compaction = parseCompactionMeta(value.compaction)
+  if (compaction) video.compaction = compaction
+  return video
 }
 
 /** Valida o conteúdo lido de um `meeting.json`. Nunca lança. */

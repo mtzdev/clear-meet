@@ -1,5 +1,6 @@
 import type { AiProvider, AiStatus, KeyTestResult } from '@shared/ai'
 import type { ChatSent, ChatState } from '@shared/chat'
+import type { CleanupPreview, CleanupRequest, CleanupResult } from '@shared/cleanup'
 import type { FfmpegStatus } from '@shared/ffmpeg'
 import type { FloatingInfo } from '@shared/floating'
 import type { IpcHandlers } from '@shared/ipc'
@@ -37,6 +38,12 @@ export interface HandlerDeps {
   renameMeeting(folder: string, name: string): Promise<Result<RenamedMeeting>>
   revealMeeting(folder: string): Promise<void>
   deleteMeeting(folder: string): Promise<Result<null>>
+  deleteMeetingVideo(folder: string): Promise<Result<{ freedBytes: number }>>
+  retryCompaction(folder: string): Promise<Result<null>>
+  cleanup: {
+    preview(request: CleanupRequest): Promise<Result<CleanupPreview>>
+    run(request: CleanupRequest): Promise<Result<CleanupResult>>
+  }
   library: {
     search(query: LibraryQuery): Promise<LibraryResult>
     refresh(): Promise<void>
@@ -113,6 +120,10 @@ export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
       return null
     },
     'meeting:delete': (request) => deps.deleteMeeting(request.folder),
+    'meeting:deleteVideo': (request) => deps.deleteMeetingVideo(request.folder),
+    'compaction:retry': (request) => deps.retryCompaction(request.folder),
+    'cleanup:preview': (request) => deps.cleanup.preview(request),
+    'cleanup:run': (request) => deps.cleanup.run(request),
     'library:search': (request) => deps.library.search(request),
     'library:refresh': async () => {
       await deps.library.refresh()

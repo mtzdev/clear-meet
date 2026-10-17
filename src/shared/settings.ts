@@ -7,6 +7,7 @@ import {
   isTranscriptionModel
 } from './ai'
 import { DEFAULT_QUALITY, isQualityPreset, type QualityPreset } from './capture'
+import { DEFAULT_COMPACTION_MODE, isCompactionMode, type CompactionMode } from './compaction'
 import type { Point } from './floating'
 import { DEFAULT_NOTE_LEAD_SECONDS, DEFAULT_NOTE_SHORTCUT, MAX_NOTE_LEAD_SECONDS } from './notes'
 
@@ -26,11 +27,10 @@ export function isVideoEncoder(value: unknown): value is VideoEncoder {
 export interface AppSettings {
   /** Pasta das Reuniões; `null` = `Documentos\ClearMeet`. */
   meetingsDir: string | null
-  /**
-   * Compactação ligada (padrão, ADR 0003): define o bitrate ao vivo. A Fase 7 cria a
-   * Compactação em si e a Fase 8 expõe a opção.
-   */
+  /** Compactação ligada (padrão): define o bitrate ao vivo e se o Vídeo é recomprimido depois. */
   compaction: boolean
+  /** Velocidade (padrão) ou qualidade máxima na Compactação. */
+  compactionMode: CompactionMode
   quality: QualityPreset
   /**
    * Codificador H.264 do Vídeo ao vivo. É uma opção de processo do Chromium: o main a lê do
@@ -63,6 +63,7 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   meetingsDir: null,
   compaction: true,
+  compactionMode: DEFAULT_COMPACTION_MODE,
   quality: DEFAULT_QUALITY,
   videoEncoder: 'software',
   micDeviceId: null,
@@ -87,6 +88,8 @@ export type SettingsPatch = Partial<
   Pick<
     AppSettings,
     | 'quality'
+    | 'compaction'
+    | 'compactionMode'
     | 'micDeviceId'
     | 'systemAudio'
     | 'transcriptionModel'
@@ -124,6 +127,9 @@ export function parseSettings(raw: unknown): AppSettings {
   return {
     meetingsDir,
     compaction: typeof raw.compaction === 'boolean' ? raw.compaction : DEFAULT_SETTINGS.compaction,
+    compactionMode: isCompactionMode(raw.compactionMode)
+      ? raw.compactionMode
+      : DEFAULT_SETTINGS.compactionMode,
     quality: isQualityPreset(raw.quality) ? raw.quality : DEFAULT_SETTINGS.quality,
     videoEncoder: isVideoEncoder(raw.videoEncoder)
       ? raw.videoEncoder
@@ -164,6 +170,10 @@ export function applySettingsPatch(current: AppSettings, patch: SettingsPatch): 
       typeof patch.micDeviceId === 'string' && patch.micDeviceId !== '' ? patch.micDeviceId : null
   }
   if (typeof patch.systemAudio === 'boolean') next.systemAudio = patch.systemAudio
+  if (typeof patch.compaction === 'boolean') next.compaction = patch.compaction
+  if (patch.compactionMode !== undefined && isCompactionMode(patch.compactionMode)) {
+    next.compactionMode = patch.compactionMode
+  }
   if (patch.transcriptionModel !== undefined && isTranscriptionModel(patch.transcriptionModel)) {
     next.transcriptionModel = patch.transcriptionModel
   }

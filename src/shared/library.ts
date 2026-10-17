@@ -1,3 +1,4 @@
+import type { ListCompaction } from './compaction'
 import type { CaptureSourceKind, MeetingIssue, MeetingNote, MeetingStatus } from './meeting'
 import type { SummaryStatus, SummaryView } from './summary'
 import type { TranscriptStatus, TranscriptView } from './transcript'
@@ -23,6 +24,7 @@ export interface MeetingListItem {
   summaryStatus: SummaryStatus
   /** `video.mp4` existe na pasta. */
   hasVideo: boolean
+  compactionStatus: ListCompaction
   /** URL da miniatura, ou `null` (sem Vídeo, ainda não gerada ou sem FFmpeg). */
   thumbnail: string | null
 }
@@ -93,16 +95,26 @@ export interface LibraryResult {
 }
 
 export type ListStatusKind =
-  'recording' | 'interrupted' | 'processing' | 'transcribing' | 'summarizing' | 'warning' | 'ready'
+  | 'recording'
+  | 'interrupted'
+  | 'processing'
+  | 'transcribing'
+  | 'summarizing'
+  | 'compacting'
+  | 'warning'
+  | 'ready'
 
 export interface ListStatus {
   kind: ListStatusKind
   label: string
 }
 
-/** A linha de status da lista: gravando, interrompida, processando, transcrevendo, resumindo ou pronta. */
+/** A linha de status da lista: gravando, interrompida, processando, transcrevendo, resumindo, compactando ou pronta. */
 export function listStatus(
-  item: Pick<MeetingListItem, 'status' | 'live' | 'transcriptStatus' | 'summaryStatus'>
+  item: Pick<
+    MeetingListItem,
+    'status' | 'live' | 'transcriptStatus' | 'summaryStatus' | 'compactionStatus'
+  >
 ): ListStatus {
   if (item.live) return { kind: 'recording', label: 'Gravando agora' }
   switch (item.status) {
@@ -117,10 +129,12 @@ export function listStatus(
   }
   if (item.transcriptStatus === 'running') return { kind: 'transcribing', label: 'Transcrevendo' }
   if (item.summaryStatus === 'running') return { kind: 'summarizing', label: 'Resumindo' }
+  if (item.compactionStatus === 'running') return { kind: 'compacting', label: 'Compactando…' }
   if (item.transcriptStatus === 'error') {
     return { kind: 'warning', label: 'Transcrição interrompida' }
   }
   if (item.summaryStatus === 'error') return { kind: 'warning', label: 'Resumo interrompido' }
+  if (item.compactionStatus === 'error') return { kind: 'warning', label: 'Falha ao compactar' }
   return { kind: 'ready', label: 'Pronta' }
 }
 
@@ -152,6 +166,7 @@ export interface MeetingDetail {
   hasVideoFile: boolean
   /** `audio.opus` existe na pasta. */
   hasAudioFile: boolean
+  compactionStatus: ListCompaction
   /** A Reunião teve microfone ou áudio do sistema; sem nenhum, não há o que transcrever. */
   hasAudioInput: boolean
   /** Proporção do Vídeo (largura / altura); `null` sem Vídeo. */
@@ -164,36 +179,45 @@ export interface MeetingDetail {
   summary: SummaryView
 }
 
-export type ListAction = 'rename' | 'delete'
+export type ListAction = 'rename' | 'delete' | 'delete-video'
 
 /** Por que uma ação da lista (editar título, excluir) está bloqueada. */
-export type ListBlock = 'recording' | 'unfinished' | 'transcribing' | 'summarizing'
+export type ListBlock = 'recording' | 'unfinished' | 'transcribing' | 'summarizing' | 'compacting'
 
 export const LIST_BLOCK_TEXT: Record<ListBlock, string> = {
   recording: 'Gravando agora',
   unfinished: 'Aguarde terminar de processar',
   transcribing: 'Transcrevendo agora',
-  summarizing: 'Resumindo agora'
+  summarizing: 'Resumindo agora',
+  compacting: 'Compactando agora'
 }
+
+type BlockInput = Pick<
+  MeetingListItem,
+  'status' | 'live' | 'transcriptStatus' | 'summaryStatus' | 'compactionStatus'
+>
 
 /**
  * Motivo para bloquear a ação sobre a Reunião da lista, ou `null` se está liberada. Renomear
  * segue o bloqueio de edição da tela da Reunião; excluir só barra o que o app está escrevendo
- * agora (uma Reunião interrompida ou com arquivos pendentes pode ser excluída).
+ * agora (uma Reunião interrompida ou com arquivos pendentes pode ser excluída). Apagar só o
+ * Vídeo exige a Reunião pronta e o Vídeo fora de uso, mas não espera a IA, que lê só o áudio.
  * A Conversa em andamento só o main sabe: ele recusa o pedido com a mesma mensagem de "ocupada".
  */
-export function listBlock(
-  item: Pick<MeetingListItem, 'status' | 'live' | 'transcriptStatus' | 'summaryStatus'>,
-  action: ListAction
-): ListBlock | null {
+export function listBlock(item: BlockInput, action: ListAction): ListBlock | null {
   if (action === 'rename') {
     const lock = lockFor(item.status, item.live)
     if (lock) return lock
+  } else if (action === 'delete-video') {
+    const lock = lockFor(item.status, item.live)
+    if (lock) return lock
+    return item.compactionStatus === 'running' ? 'compacting' : null
   } else {
     if (item.live) return 'recording'
     if (item.status === 'processing') return 'unfinished'
   }
   if (item.transcriptStatus === 'running') return 'transcribing'
   if (item.summaryStatus === 'running') return 'summarizing'
+  if (item.compactionStatus === 'running') return 'compacting'
   return null
 }

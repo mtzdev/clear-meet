@@ -7,11 +7,18 @@ import { MEETING_FILE } from '@shared/meeting'
 import { parseThumbnailUrl } from '@shared/media'
 import type { FfmpegTools, ProcessResult, RunProcess } from '../ffmpeg/media'
 import { addMeetingNote, deleteMeetingNote } from '../meetings/notes-store'
-import { deleteMeetingFolder } from '../meetings/delete'
-import { renameMeeting } from '../meetings/repository'
+import { trashMeetingFolder } from '../meetings/trash'
+import { renameMeeting, writeMeeting } from '../meetings/repository'
 import { renameTranscriptSpeaker } from '../meetings/transcript-store'
 import { hasFts5 } from './db'
-import { createFolder, makeNote, makeSummary, makeTranscript, type FolderSpec } from './fixtures'
+import {
+  createFolder,
+  makeMeeting,
+  makeNote,
+  makeSummary,
+  makeTranscript,
+  type FolderSpec
+} from './fixtures'
 import { LibraryService, normalizeQuery, type LibraryServiceDeps } from './service'
 import { loadSqlite, type SqliteModule } from './sqlite'
 
@@ -658,6 +665,57 @@ suite('miniaturas', () => {
     expect((await service.search(query())).entries[0]?.meeting.thumbnail).toBeNull()
   })
 
+  it('Vídeo compactado: o estado aparece na lista, o tamanho e a miniatura acompanham a troca', async () => {
+    const folder = await createFolder(
+      root,
+      'a',
+      spec('a', 'A', 1, {
+        files: { 'video.mp4': 'v'.repeat(500) },
+        meeting: {
+          video: {
+            file: 'video.mp4',
+            width: 1920,
+            height: 1080,
+            fps: 15,
+            compaction: { status: 'running', updatedAt: '2026-10-16T12:00:00.000Z' }
+          }
+        }
+      })
+    )
+    const { service } = createService()
+    await sync(service)
+    const first = (await service.search(query())).entries[0]?.meeting
+    expect(first).toMatchObject({ compactionStatus: 'running', hasVideo: true })
+    const sizeBefore = first?.sizeBytes ?? 0
+
+    // O temporário da Compactação não conta; a troca do video.mp4 sim.
+    await writeFile(join(folder, 'video.compacting.mp4'), 'x'.repeat(9000))
+    await service.refresh(folder)
+    expect((await service.search(query())).entries[0]?.meeting.sizeBytes).toBe(sizeBefore)
+
+    await writeFile(join(folder, 'video.mp4'), 'v'.repeat(100))
+    await rm(join(folder, 'video.compacting.mp4'))
+    const meeting = makeMeeting({
+      id: 'a',
+      name: 'A',
+      createdAt: days(1),
+      video: {
+        file: 'video.mp4',
+        width: 1920,
+        height: 1080,
+        fps: 15,
+        compaction: { status: 'done', updatedAt: '2026-10-16T12:10:00.000Z' }
+      }
+    })
+    await writeMeeting(folder, meeting)
+    await service.refresh(folder)
+    await service.settled()
+    const after = (await service.search(query())).entries[0]?.meeting
+    expect(after).toMatchObject({ compactionStatus: 'done' })
+    expect(after?.sizeBytes).toBeLessThan(sizeBefore)
+    expect(after?.thumbnail).not.toBeNull()
+  })
+
   it('sem FFmpeg a lista funciona, só sem miniatura', async () => {
     await createFolder(root, 'a', spec('a', 'A', 1, { files: { 'video.mp4': 'v' } }))
     const { service } = createService({ getTools: () => Promise.resolve(null) })
@@ -676,6 +734,9 @@ suite('miniaturas', () => {
   })
 })
 
+/** Lixeira de mentira: tira a pasta do lugar como o sistema faria. */
+const removeFolder = (path: string): Promise<void> => rm(path, { recursive: true, force: true })
+
 suite('exclusão', () => {
   it('excluir a Reunião tira a linha do índice, a pasta e a miniatura; as outras ficam', async () => {
     const folder = await createFolder(root, 'a', spec('a', 'A', 1, { files: { 'video.mp4': 'v' } }))
@@ -686,7 +747,7 @@ suite('exclusão', () => {
     expect(await readFile(thumbnail, 'utf8')).toBe('JPEG')
     const before = changes.count
 
-    expect(await deleteMeetingFolder(root, folder)).toEqual({ ok: true, value: null })
+    expect(await trashMeetingFolder(root, folder, removeFolder)).toEqual({ ok: true, value: null })
     await service.refresh(folder)
 
     expect(await names(service)).toEqual(['B'])
@@ -702,10 +763,7 @@ suite('exclusão', () => {
     const { service } = createService()
     await sync(service)
 
-    const result = await deleteMeetingFolder(root, folder, {
-      renameFolder: () => Promise.reject(new Error('EBUSY')),
-      removeFolder: () => Promise.resolve()
-    })
+    const result = await trashMeetingFolder(root, folder, () => Promise.reject(new Error('EBUSY')))
     expect(result.ok).toBe(false)
     await service.refresh(folder)
 
@@ -717,7 +775,7 @@ suite('exclusão', () => {
     const folder = await createFolder(root, 'a', spec('a', 'A', 1, { files: { 'video.mp4': 'v' } }))
     const { service } = createService()
     await sync(service)
-    await deleteMeetingFolder(root, folder)
+    await trashMeetingFolder(root, folder, removeFolder)
     await sync(service)
     expect(await names(service)).toEqual([])
     await expect(readFile(join(userData, 'thumbnails', 'a.jpg'))).rejects.toThrow()

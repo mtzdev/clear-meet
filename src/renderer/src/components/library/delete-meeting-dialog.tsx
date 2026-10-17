@@ -20,7 +20,7 @@ interface DeleteMeetingDialogProps {
   name: string
 }
 
-/** Confirmação para excluir a Reunião de vez (pasta, índice e miniatura); não há como desfazer. */
+/** Confirmação para enviar a Reunião inteira (a pasta) para a Lixeira. */
 export function DeleteMeetingDialog({
   open,
   onOpenChange,
@@ -64,11 +64,10 @@ export function DeleteMeetingDialog({
           <AlertDialogDescription asChild>
             <div className="space-y-2">
               <p>
-                <strong className="text-foreground font-medium break-words">{name}</strong> será
-                excluída de vez, com o vídeo, o áudio, a Transcrição, o Resumo, a Conversa e as
-                Anotações.
+                <strong className="text-foreground font-medium break-words">{name}</strong> irá para
+                a Lixeira, com o vídeo, o áudio, a Transcrição, o Resumo, a Conversa e as Anotações.
               </p>
-              <p>Esta ação não pode ser desfeita.</p>
+              <p>Dá para restaurá-la pela Lixeira do Windows.</p>
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -81,7 +80,7 @@ export function DeleteMeetingDialog({
           <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
           <Button variant="destructive" disabled={deleting} onClick={() => void confirm()}>
             {deleting && <LoaderCircle className="animate-spin" aria-hidden />}
-            Excluir
+            Enviar para a Lixeira
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

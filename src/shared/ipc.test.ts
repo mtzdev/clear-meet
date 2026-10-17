@@ -34,6 +34,9 @@ describe('contrato de IPC', () => {
       'chat:get',
       'chat:send',
       'chat:stop',
+      'cleanup:preview',
+      'cleanup:run',
+      'compaction:retry',
       'ffmpeg:status',
       'floating:getInfo',
       'floating:resize',
@@ -44,6 +47,7 @@ describe('contrato de IPC', () => {
       'meeting:addNote',
       'meeting:delete',
       'meeting:deleteNote',
+      'meeting:deleteVideo',
       'meeting:get',
       'meeting:rename',
       'meeting:reveal',
@@ -91,6 +95,7 @@ describe('contrato de IPC', () => {
     expect(isIpcEvent('app:getVersion')).toBe(false)
     expect(Object.keys(IPC_EVENTS).sort()).toEqual([
       'chat:event',
+      'compaction:changed',
       'floating:info',
       'library:changed',
       'notes:opened',

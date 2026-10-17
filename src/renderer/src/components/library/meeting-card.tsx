@@ -1,6 +1,7 @@
-import { FileText, Pencil, Sparkles, Trash2 } from 'lucide-react'
+import { FileText, Pencil, RefreshCw, Sparkles, Trash2, VideoOff } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { DeleteMeetingDialog } from '@/components/library/delete-meeting-dialog'
+import { DeleteVideoDialog } from '@/components/library/delete-video-dialog'
 import { NotesPreview } from '@/components/library/notes-preview'
 import { Snippet } from '@/components/library/snippet'
 import { StatusBadge } from '@/components/library/status-badge'
@@ -12,10 +13,12 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuShortcut,
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useCompactionPercent } from '@/lib/compaction'
 import { formatBytes, formatDateTime, formatDuration } from '@/lib/format'
 import { SOURCE_KIND_LABEL } from '@/lib/meeting-text'
 import { meetingHref } from '@/lib/router'
@@ -122,6 +125,8 @@ export function MeetingCard({ entry }: { entry: LibraryEntry }) {
 
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [confirmingVideoDelete, setConfirmingVideoDelete] = useState(false)
+  const compactionPercent = useCompactionPercent(meeting.id)
   /** Nome recém-salvo, mostrado até o índice trazer o novo nome. */
   const [saved, setSaved] = useState<{ from: string; to: string } | null>(null)
   const [folderNotice, setFolderNotice] = useState(false)
@@ -132,6 +137,8 @@ export function MeetingCard({ entry }: { entry: LibraryEntry }) {
   const deleteBlock = listBlock(meeting, 'delete')
   const renameReason = renameBlock && LIST_BLOCK_TEXT[renameBlock]
   const deleteReason = deleteBlock && LIST_BLOCK_TEXT[deleteBlock]
+  const videoBlock = listBlock(meeting, 'delete-video')
+  const videoReason = videoBlock && LIST_BLOCK_TEXT[videoBlock]
   const name = saved?.from === meeting.name ? saved.to : meeting.name
 
   const startEditing = (): void => {
@@ -139,6 +146,12 @@ export function MeetingCard({ entry }: { entry: LibraryEntry }) {
   }
   const askDelete = (): void => {
     if (deleteBlock === null) setConfirmingDelete(true)
+  }
+  const askDeleteVideo = (): void => {
+    if (videoBlock === null) setConfirmingVideoDelete(true)
+  }
+  const retryCompaction = (): void => {
+    void window.api.invoke('compaction:retry', { folder: meeting.folder })
   }
 
   const save = async (next: string): Promise<string | null> => {
@@ -189,7 +202,7 @@ export function MeetingCard({ entry }: { entry: LibraryEntry }) {
                       </ActionButton>
                     </div>
                   )}
-                  <StatusBadge item={meeting} />
+                  <StatusBadge item={meeting} percent={compactionPercent} />
                 </div>
                 <p className="text-muted-foreground truncate text-xs">{details.join(' · ')}</p>
                 {folderNotice && (
@@ -249,6 +262,24 @@ export function MeetingCard({ entry }: { entry: LibraryEntry }) {
             Editar título
             {renameReason && <ContextMenuShortcut>{renameReason}</ContextMenuShortcut>}
           </ContextMenuItem>
+          {meeting.hasVideo && (
+            <ContextMenuItem
+              variant="destructive"
+              disabled={videoBlock !== null}
+              onSelect={askDeleteVideo}
+            >
+              <VideoOff aria-hidden />
+              Apagar só o vídeo
+              {videoReason && <ContextMenuShortcut>{videoReason}</ContextMenuShortcut>}
+            </ContextMenuItem>
+          )}
+          {meeting.compactionStatus === 'error' && (
+            <ContextMenuItem onSelect={retryCompaction}>
+              <RefreshCw aria-hidden />
+              Tentar compactar de novo
+            </ContextMenuItem>
+          )}
+          <ContextMenuSeparator />
           <ContextMenuItem
             variant="destructive"
             disabled={deleteBlock !== null}
@@ -260,6 +291,12 @@ export function MeetingCard({ entry }: { entry: LibraryEntry }) {
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+      <DeleteVideoDialog
+        open={confirmingVideoDelete}
+        onOpenChange={setConfirmingVideoDelete}
+        folder={meeting.folder}
+        name={name}
+      />
       <DeleteMeetingDialog
         open={confirmingDelete}
         onOpenChange={setConfirmingDelete}

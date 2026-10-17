@@ -14,9 +14,12 @@ export interface FolderScan {
   videoSig: string | null
 }
 
-/** Temporários da escrita atômica: aparecem e somem sem que a Reunião tenha mudado. */
+/**
+ * Temporários que aparecem e somem sem que a Reunião tenha mudado: a escrita atômica e o Vídeo
+ * compactado em construção (que cresce durante a Compactação e ainda não faz parte da Reunião).
+ */
 function isTemporary(name: string): boolean {
-  return name.endsWith('.tmp')
+  return name.endsWith('.tmp') || name === MEETING_FILES.videoCompacting
 }
 
 /** Lê só os metadados dos arquivos da pasta (nunca o conteúdo). `null` se a pasta não existe mais. */

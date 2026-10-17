@@ -3,10 +3,22 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { listStatus, type MeetingListItem } from '@shared/library'
 
-type StatusInput = Pick<MeetingListItem, 'status' | 'live' | 'transcriptStatus' | 'summaryStatus'>
+type StatusInput = Pick<
+  MeetingListItem,
+  'status' | 'live' | 'transcriptStatus' | 'summaryStatus' | 'compactionStatus'
+>
 
 /** Situação da Reunião na lista: gravando, processando, transcrevendo, resumindo, pronta... */
-export function StatusBadge({ item, className }: { item: StatusInput; className?: string }) {
+export function StatusBadge({
+  item,
+  percent = null,
+  className
+}: {
+  item: StatusInput
+  /** Andamento da Compactação (0 a 100), quando se sabe. */
+  percent?: number | null
+  className?: string
+}) {
   const status = listStatus(item)
   switch (status.kind) {
     case 'recording':
@@ -27,10 +39,14 @@ export function StatusBadge({ item, className }: { item: StatusInput; className?
     case 'processing':
     case 'transcribing':
     case 'summarizing':
+    case 'compacting':
       return (
         <Badge variant="outline" className={className}>
           <LoaderCircle className="animate-spin" aria-hidden />
           {status.label}
+          {status.kind === 'compacting' && percent !== null && (
+            <span className="tabular-nums">{percent}%</span>
+          )}
         </Badge>
       )
     case 'ready':

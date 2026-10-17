@@ -34,6 +34,7 @@ function row(overrides: Partial<MeetingRow> = {}): MeetingRow {
     transcriptStatus: 'none',
     summaryStatus: 'none',
     hasVideo: true,
+    compactionStatus: 'none',
     videoSig: '10:1',
     signature: 'sig-1',
     ...overrides

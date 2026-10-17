@@ -21,6 +21,7 @@ export function buildRow(folderName: string, meeting: MeetingFile, scan: FolderS
     transcriptStatus: meeting.transcript?.status ?? 'none',
     summaryStatus: meeting.summary?.status ?? 'none',
     hasVideo: scan.videoSig !== null,
+    compactionStatus: meeting.video?.compaction?.status ?? 'none',
     videoSig: scan.videoSig,
     signature: scan.signature
   }

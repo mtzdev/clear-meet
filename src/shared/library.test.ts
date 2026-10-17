@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { listBlock, listStatus, lockFor, type MeetingListItem } from './library'
 
-type StatusInput = Pick<MeetingListItem, 'status' | 'live' | 'transcriptStatus' | 'summaryStatus'>
+type StatusInput = Pick<
+  MeetingListItem,
+  'status' | 'live' | 'transcriptStatus' | 'summaryStatus' | 'compactionStatus'
+>
 
 function input(overrides: Partial<StatusInput> = {}): StatusInput {
   return {
@@ -9,6 +12,7 @@ function input(overrides: Partial<StatusInput> = {}): StatusInput {
     live: false,
     transcriptStatus: 'none',
     summaryStatus: 'none',
+    compactionStatus: 'none',
     ...overrides
   }
 }
@@ -19,6 +23,22 @@ describe('listStatus', () => {
     expect(listStatus(input({ transcriptStatus: 'ready', summaryStatus: 'ready' })).kind).toBe(
       'ready'
     )
+  })
+
+  it('mostra "Compactando…" depois da IA e "Falha ao compactar" no fim', () => {
+    expect(listStatus(input({ compactionStatus: 'running' }))).toEqual({
+      kind: 'compacting',
+      label: 'Compactando…'
+    })
+    expect(
+      listStatus(input({ compactionStatus: 'running', transcriptStatus: 'running' })).kind
+    ).toBe('transcribing')
+    expect(listStatus(input({ compactionStatus: 'error' }))).toEqual({
+      kind: 'warning',
+      label: 'Falha ao compactar'
+    })
+    expect(listStatus(input({ compactionStatus: 'done' })).kind).toBe('ready')
+    expect(listStatus(input({ compactionStatus: 'kept-original' })).kind).toBe('ready')
   })
 
   it('a gravação ao vivo vence qualquer outro estado', () => {
@@ -93,6 +113,22 @@ describe('listBlock', () => {
     expect(listBlock(input({ status: 'recording' }), 'delete')).toBeNull()
     expect(listBlock(input({ status: 'unprocessed' }), 'delete')).toBeNull()
     expect(listBlock(input({ status: 'processing' }), 'delete')).toBe('unfinished')
+  })
+
+  it('Compactação em andamento bloqueia renomear, excluir e apagar só o vídeo', () => {
+    const compacting = input({ compactionStatus: 'running' })
+    for (const action of ['rename', 'delete', 'delete-video'] as const) {
+      expect(listBlock(compacting, action)).toBe('compacting')
+    }
+  })
+
+  it('apagar só o vídeo exige Reunião pronta, mas não espera a IA', () => {
+    expect(listBlock(input(), 'delete-video')).toBeNull()
+    expect(listBlock(input({ live: true }), 'delete-video')).toBe('recording')
+    expect(listBlock(input({ status: 'recording' }), 'delete-video')).toBe('recording')
+    expect(listBlock(input({ status: 'unprocessed' }), 'delete-video')).toBe('unfinished')
+    expect(listBlock(input({ transcriptStatus: 'running' }), 'delete-video')).toBeNull()
+    expect(listBlock(input({ summaryStatus: 'running' }), 'delete-video')).toBeNull()
   })
 
   it('erro de IA não bloqueia', () => {

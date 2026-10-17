@@ -38,6 +38,7 @@ describe('parseSettings', () => {
     ).toEqual({
       meetingsDir: 'D:\\Reunioes',
       compaction: false,
+      compactionMode: 'speed',
       quality: '720p',
       videoEncoder: 'hardware',
       micDeviceId: 'abc',

@@ -1,6 +1,7 @@
 import { Info, LoaderCircle, MicOff, NotebookText, TriangleAlert } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { EmptyState } from '@/components/empty-state'
+import { DeleteVideoDialog } from '@/components/library/delete-video-dialog'
 import { Screen } from '@/components/layout/screen'
 import { MediaPlayer, type PlayerMedia } from '@/components/meeting/media-player'
 import { MeetingHeader } from '@/components/meeting/meeting-header'
@@ -21,7 +22,7 @@ import { useSummaryView } from '@/lib/summary'
 import { useTranscriptView } from '@/lib/transcript'
 import { usePlayerShortcuts } from '@/lib/use-player-shortcuts'
 import { NO_AUDIO_NOTICE } from '@shared/audio-inputs'
-import type { MeetingDetail } from '@shared/library'
+import { LIST_BLOCK_TEXT, type MeetingDetail } from '@shared/library'
 import { mediaUrl } from '@shared/media'
 
 /** Tempo para o player soltar o arquivo antes de a pasta ser renomeada (ms). */
@@ -135,6 +136,7 @@ function MeetingView({
   })
   const [suspended, setSuspended] = useState(false)
   const [folderNotice, setFolderNotice] = useState(false)
+  const [confirmingVideoDelete, setConfirmingVideoDelete] = useState(false)
   usePlayerShortcuts(controller, true)
 
   const locked = detail.lock !== null
@@ -160,6 +162,37 @@ function MeetingView({
       setSuspended(false)
     }
   }
+
+  /** Solta o arquivo de vídeo para o app poder trocá-lo ou enviá-lo para a Lixeira. */
+  const releaseMedia = async (): Promise<void> => {
+    setSuspended(true)
+    await new Promise((resolve) => setTimeout(resolve, RELEASE_DELAY_MS))
+  }
+
+  // A Compactação troca o arquivo do Vídeo: o player reabre o novo ao terminar.
+  useEffect(() => {
+    return window.api.on('compaction:changed', (event) => {
+      if (event.meetingId !== detail.id) return
+      // O andamento chega várias vezes; só o início e o fim mudam a tela.
+      if (event.status === 'running' && event.percent !== null && event.percent > 0) return
+      if (event.status !== 'done') {
+        void reload()
+        return
+      }
+      void (async () => {
+        await releaseMedia()
+        await reload()
+        setSuspended(false)
+      })()
+    })
+  }, [detail.id, reload])
+
+  const compacting = detail.compactionStatus === 'running'
+  const deleteVideoBlock = detail.lock
+    ? LOCK_TEXT[detail.lock].title
+    : compacting
+      ? LIST_BLOCK_TEXT.compacting
+      : null
 
   const player = (
     <div className="flex h-full min-h-0 flex-col">
@@ -250,8 +283,27 @@ function MeetingView({
     <section aria-labelledby="screen-title" className="flex h-full min-h-0 flex-col">
       <MeetingHeader
         detail={detail}
-        canRename={!locked && !transcribing && !summarizing}
+        canRename={!locked && !transcribing && !summarizing && !compacting}
         onRename={rename}
+        deleteVideo={
+          detail.hasVideoFile && detail.hasAudioFile
+            ? {
+                blockedReason: deleteVideoBlock,
+                onClick: () => setConfirmingVideoDelete(true)
+              }
+            : null
+        }
+      />
+      <DeleteVideoDialog
+        open={confirmingVideoDelete}
+        onOpenChange={setConfirmingVideoDelete}
+        folder={detail.folder}
+        name={detail.name}
+        prepare={releaseMedia}
+        onFinished={(deleted) => {
+          if (deleted) void reload().finally(() => setSuspended(false))
+          else setSuspended(false)
+        }}
       />
       {detail.lock && (
         <Alert className="border-warning/40 text-warning mx-4 my-3 w-auto shrink-0">

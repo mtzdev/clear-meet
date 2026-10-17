@@ -22,6 +22,7 @@ const status: FfmpegStatus = {
 const settingsView: SettingsView = {
   meetingsDir: null,
   compaction: true,
+  compactionMode: 'speed',
   quality: '1080p',
   videoEncoder: 'software',
   micDeviceId: null,
@@ -62,6 +63,17 @@ function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
       Promise.resolve({ ok: true, value: { folder, name, folderRenamed: true } }),
     revealMeeting: () => Promise.resolve(),
     deleteMeeting: () => Promise.resolve(ok),
+    deleteMeetingVideo: () => Promise.resolve({ ok: true, value: { freedBytes: 10 } }),
+    retryCompaction: () => Promise.resolve(ok),
+    cleanup: {
+      preview: () =>
+        Promise.resolve({ ok: true, value: { count: 1, bytes: 5, skipped: 0, oldestDays: null } }),
+      run: () =>
+        Promise.resolve({
+          ok: true,
+          value: { removed: 1, freedBytes: 5, skipped: 0, failed: 0 }
+        })
+    },
     library: {
       search: () =>
         Promise.resolve({ entries: [], total: 0, indexed: 0, skipped: 0, updating: false }),
@@ -291,6 +303,7 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
   it('o contrato de eventos tem os eventos esperados', () => {
     expect(Object.keys(IPC_EVENTS).sort()).toEqual([
       'chat:event',
+      'compaction:changed',
       'floating:info',
       'library:changed',
       'notes:opened',
