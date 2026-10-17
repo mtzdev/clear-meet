@@ -41,6 +41,8 @@ export interface AppSettings {
   videoEncoder: VideoEncoder
   /** Último microfone escolhido; `null` = padrão do sistema; `'none'` = gravar sem microfone. */
   micDeviceId: string | null
+  /** Grava também o áudio que toca no computador (loopback); ligado por padrão. */
+  systemAudio: boolean
   /**
    * Atalho global que abre o campo de Anotação durante a gravação (formato de acelerador do
    * Electron). Só vale ao iniciar a gravação; a tela de Configurações é da Fase 8.
@@ -64,6 +66,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   quality: DEFAULT_QUALITY,
   videoEncoder: 'software',
   micDeviceId: null,
+  systemAudio: true,
   noteShortcut: DEFAULT_NOTE_SHORTCUT,
   noteLeadSeconds: DEFAULT_NOTE_LEAD_SECONDS,
   barPosition: null,
@@ -83,7 +86,12 @@ export interface SettingsView extends AppSettings {
 export type SettingsPatch = Partial<
   Pick<
     AppSettings,
-    'quality' | 'micDeviceId' | 'transcriptionModel' | 'groqTextModel' | 'geminiTextModel'
+    | 'quality'
+    | 'micDeviceId'
+    | 'systemAudio'
+    | 'transcriptionModel'
+    | 'groqTextModel'
+    | 'geminiTextModel'
   >
 >
 
@@ -121,6 +129,8 @@ export function parseSettings(raw: unknown): AppSettings {
       ? raw.videoEncoder
       : DEFAULT_SETTINGS.videoEncoder,
     micDeviceId,
+    systemAudio:
+      typeof raw.systemAudio === 'boolean' ? raw.systemAudio : DEFAULT_SETTINGS.systemAudio,
     noteShortcut:
       typeof raw.noteShortcut === 'string' && raw.noteShortcut.trim() !== ''
         ? raw.noteShortcut.trim()
@@ -153,6 +163,7 @@ export function applySettingsPatch(current: AppSettings, patch: SettingsPatch): 
     next.micDeviceId =
       typeof patch.micDeviceId === 'string' && patch.micDeviceId !== '' ? patch.micDeviceId : null
   }
+  if (typeof patch.systemAudio === 'boolean') next.systemAudio = patch.systemAudio
   if (patch.transcriptionModel !== undefined && isTranscriptionModel(patch.transcriptionModel)) {
     next.transcriptionModel = patch.transcriptionModel
   }

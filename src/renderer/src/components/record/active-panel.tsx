@@ -128,7 +128,7 @@ export function ActivePanel({ state }: { state: ActiveState }) {
               icon={<Volume2 className="size-4" aria-hidden />}
               label="Áudio do sistema"
               level={levels.system}
-              {...(!state.meeting.hasSystemAudio ? { note: 'Indisponível' } : {})}
+              {...(!state.meeting.hasSystemAudio ? { note: 'Não está sendo gravado' } : {})}
             />
           </div>
 

@@ -7,6 +7,7 @@ import type { MeetingNote } from './meeting'
 import type {
   AudioLevels,
   CaptureSourceInfo,
+  ListSourcesRequest,
   FinishedRecording,
   PreflightInfo,
   RecordingState,
@@ -29,7 +30,7 @@ export interface IpcContract {
   'app:getVersion': { request: void; response: string }
   'ffmpeg:status': { request: void; response: FfmpegStatus }
   /** Telas e janelas disponíveis, com miniaturas. */
-  'capture:listSources': { request: void; response: CaptureSourceInfo[] }
+  'capture:listSources': { request: ListSourcesRequest; response: CaptureSourceInfo[] }
   /** Pasta das Reuniões, espaço livre e FFmpeg, para avisar antes de gravar. */
   'recording:preflight': { request: void; response: PreflightInfo }
   'recording:getState': { request: void; response: RecordingState }

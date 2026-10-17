@@ -1,5 +1,5 @@
 import { AppWindow, Check, Mic, Monitor, RefreshCw } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { memo, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { isSameSource, toRef, AUDIO_ONLY } from '@/lib/source-selection'
 import { cn } from '@/lib/utils'
@@ -71,6 +71,17 @@ function Card({
 }
 
 function Thumbnail({ source }: { source: CaptureSourceInfo }) {
+  if (source.minimized) {
+    return (
+      <div className="text-muted-foreground grid h-full place-items-center">
+        {source.appIcon ? (
+          <img src={source.appIcon} alt="" className="size-10" draggable={false} />
+        ) : (
+          <AppWindow className="size-9" strokeWidth={1.5} aria-hidden />
+        )}
+      </div>
+    )
+  }
   if (!source.thumbnail) {
     return (
       <div className="text-muted-foreground grid h-full place-items-center text-xs">
@@ -82,6 +93,49 @@ function Thumbnail({ source }: { source: CaptureSourceInfo }) {
     <img src={source.thumbnail} alt="" className="size-full object-contain" draggable={false} />
   )
 }
+
+/** Cartão de uma tela ou janela; só é refeito quando a própria Fonte, a seleção ou o bloqueio mudam. */
+const SourceCard = memo(function SourceCard({
+  source,
+  selected,
+  disabled,
+  onSelect
+}: {
+  source: CaptureSourceInfo
+  selected: boolean
+  disabled?: boolean
+  onSelect: (source: CaptureSourceRef) => void
+}) {
+  const isScreen = source.kind === 'screen'
+  return (
+    <Card
+      selected={selected}
+      disabled={disabled}
+      onClick={() => onSelect(toRef(source))}
+      preview={
+        <>
+          <Thumbnail source={source} />
+          {source.minimized && (
+            <span className="bg-background/90 text-muted-foreground border-border absolute bottom-2 left-2 rounded-md border px-1.5 py-0.5 text-[11px] leading-none font-medium">
+              Minimizada
+            </span>
+          )}
+        </>
+      }
+      title={source.name}
+      subtitle={isScreen ? 'Tela inteira' : 'Janela'}
+      icon={
+        isScreen ? (
+          <Monitor className="size-4" aria-hidden />
+        ) : source.appIcon ? (
+          <img src={source.appIcon} alt="" className="size-4" draggable={false} />
+        ) : (
+          <AppWindow className="size-4" aria-hidden />
+        )
+      }
+    />
+  )
+})
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -128,15 +182,12 @@ export function SourcePicker({
                 <div key={key} className="bg-muted aspect-[16/12] animate-pulse rounded-xl" />
               ))
             : screens.map((source) => (
-                <Card
+                <SourceCard
                   key={source.id}
+                  source={source}
                   selected={isSameSource(selected, toRef(source))}
                   disabled={disabled}
-                  onClick={() => onSelect(toRef(source))}
-                  preview={<Thumbnail source={source} />}
-                  title={source.name}
-                  subtitle="Tela inteira"
-                  icon={<Monitor className="size-4" aria-hidden />}
+                  onSelect={onSelect}
                 />
               ))}
         </Group>
@@ -144,21 +195,12 @@ export function SourcePicker({
         {windows.length > 0 && (
           <Group title="Janelas">
             {windows.map((source) => (
-              <Card
+              <SourceCard
                 key={source.id}
+                source={source}
                 selected={isSameSource(selected, toRef(source))}
                 disabled={disabled}
-                onClick={() => onSelect(toRef(source))}
-                preview={<Thumbnail source={source} />}
-                title={source.name}
-                subtitle="Janela"
-                icon={
-                  source.appIcon ? (
-                    <img src={source.appIcon} alt="" className="size-4" draggable={false} />
-                  ) : (
-                    <AppWindow className="size-4" aria-hidden />
-                  )
-                }
+                onSelect={onSelect}
               />
             ))}
           </Group>

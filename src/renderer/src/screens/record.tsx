@@ -1,5 +1,6 @@
 import { CircleDot, LoaderCircle } from 'lucide-react'
 import { useState } from 'react'
+import { checkInputs, INPUTS_PROBLEM_TEXT, INPUTS_WARNING_TEXT } from '@shared/audio-inputs'
 import { ActivePanel } from '@/components/record/active-panel'
 import { AudioSection } from '@/components/record/audio-section'
 import { FinishedPanel } from '@/components/record/finished-panel'
@@ -30,11 +31,12 @@ export function RecordScreen() {
   const [startError, setStartError] = useState<string | null>(null)
 
   const idle = state.phase === 'idle'
+  const starting = state.phase === 'starting'
   const showSetup = state.phase === 'idle' || state.phase === 'starting'
   const finished = state.phase === 'idle' ? state.finished : null
   const setupVisible = showSetup && finished === null
 
-  const { sources, loading, error, refresh } = useCaptureSources(setupVisible)
+  const { sources, loading, error, refresh } = useCaptureSources(setupVisible && !starting)
   const mics = useMicDevices()
   const preflight = usePreflight(setupVisible)
 
@@ -42,15 +44,22 @@ export function RecordScreen() {
   const selected = resolveSelection(chosen, sources)
   const micChoice = resolveMicChoice(settings?.micDeviceId ?? null, mics.devices)
   const quality = settings?.quality ?? '1080p'
+  const systemAudio = settings?.systemAudio ?? true
   const blockedByDisk = preflight?.disk === 'critical'
+  const micDevice =
+    micChoice === NO_MIC ? undefined : mics.devices.find((item) => item.deviceId === micChoice)
+  const inputs = checkInputs({
+    hasVideo: selected.kind !== 'none',
+    mic: micDevice !== undefined,
+    systemAudio
+  })
 
   const start = async () => {
     setStartError(null)
-    const device = mics.devices.find((candidate) => candidate.deviceId === micChoice)
     const result = await window.api.invoke('recording:start', {
       source: selected,
-      mic:
-        micChoice === NO_MIC || !device ? null : { deviceId: device.deviceId, label: device.label },
+      mic: micDevice ? { deviceId: micDevice.deviceId, label: micDevice.label } : null,
+      systemAudio,
       quality
     })
     if (!result.ok) setStartError(result.error.message)
@@ -72,7 +81,6 @@ export function RecordScreen() {
     )
   }
 
-  const starting = state.phase === 'starting'
   const showRecovery = report.checkedAt !== null && report.checkedAt !== dismissedAt
 
   return (
@@ -102,8 +110,10 @@ export function RecordScreen() {
               devices={mics.devices}
               problem={mics.problem}
               choice={micChoice}
+              systemAudio={systemAudio}
               disabled={starting}
               onChange={(value) => update({ micDeviceId: value })}
+              onSystemAudioChange={(enabled) => update({ systemAudio: enabled })}
             />
             <QualitySection
               value={quality}
@@ -121,6 +131,10 @@ export function RecordScreen() {
           <div className="min-w-0 text-sm">
             {startError ? (
               <p className="text-destructive">{startError}</p>
+            ) : !inputs.ok ? (
+              <p className="text-warning truncate">{INPUTS_PROBLEM_TEXT[inputs.problem]}</p>
+            ) : inputs.warning ? (
+              <p className="text-warning truncate">{INPUTS_WARNING_TEXT[inputs.warning]}</p>
             ) : (
               <p className="text-muted-foreground truncate">
                 {idle && preflight?.freeBytes != null
@@ -132,7 +146,7 @@ export function RecordScreen() {
           <Button
             size="lg"
             className="bg-record hover:bg-record/90 min-w-52 text-white"
-            disabled={starting || blockedByDisk || !idle}
+            disabled={starting || blockedByDisk || !idle || !inputs.ok}
             onClick={() => void start()}
           >
             {starting ? (

@@ -12,6 +12,8 @@ export interface RecorderStartParams {
   /** `false` na Reunião só de áudio. */
   hasVideo: boolean
   mic: MicSelection | null
+  /** Captura o áudio do sistema (loopback) junto com a tela; `false` = só o microfone. */
+  systemAudio: boolean
   preset: QualityPreset
   /** Compactação ligada define o bitrate ao vivo (ADR 0003). */
   compaction: boolean

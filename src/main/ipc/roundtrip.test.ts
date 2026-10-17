@@ -25,6 +25,7 @@ const settingsView: SettingsView = {
   quality: '1080p',
   videoEncoder: 'software',
   micDeviceId: null,
+  systemAudio: true,
   noteShortcut: 'Ctrl+Shift+Space',
   noteLeadSeconds: 5,
   barPosition: null,

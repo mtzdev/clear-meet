@@ -12,6 +12,7 @@ import type {
 } from '@shared/recorder'
 import {
   type AudioLevels,
+  type CaptureSourceRef,
   DISK_ABORT_BYTES,
   DISK_CRITICAL_BYTES,
   DISK_LOW_BYTES,
@@ -30,6 +31,7 @@ const GB = 1024 ** 3
 const windowRequest: StartRecordingRequest = {
   source: { kind: 'window', id: 'window:1:0', name: 'Reunião semanal - Meet' },
   mic: { deviceId: 'default', label: 'Microfone' },
+  systemAudio: true,
   quality: '1080p'
 }
 
@@ -56,6 +58,8 @@ interface Harness {
   dir: string
   sink: () => RecorderSink
   commands: RecorderCommand[]
+  restored: number[]
+  selections: { source: CaptureSourceRef | null; systemAudio: boolean | undefined }[]
   states: RecordingState[]
   levels: AudioLevels[]
   now: { value: number }
@@ -78,6 +82,8 @@ afterEach(async () => {
 
 function createHarness(): Harness {
   const commands: RecorderCommand[] = []
+  const selections: Harness['selections'] = []
+  const restored: number[] = []
   const states: RecordingState[] = []
   const levels: AudioLevels[] = []
   const now = { value: T0 }
@@ -119,13 +125,20 @@ function createHarness(): Harness {
       sink = newSink
       return Promise.resolve(session)
     },
-    selectSource: (source) => Promise.resolve(source === null || sourceAvailable),
+    selectSource: (source, systemAudio) => {
+      selections.push({ source, systemAudio })
+      return Promise.resolve(source === null || sourceAvailable)
+    },
     emit: (event, payload) => {
       if (event === 'recording:state') states.push(payload as RecordingState)
       else levels.push(payload as AudioLevels)
     },
     freeBytes: () => Promise.resolve(free.value),
     keepAwake: () => () => undefined,
+    restoreWindow: (hwnd) => {
+      restored.push(hwnd)
+      return Promise.resolve()
+    },
     windowState: (hwnd) => {
       windowState.calls.push(hwnd)
       return windowState.value
@@ -142,6 +155,8 @@ function createHarness(): Harness {
       return sink
     },
     commands,
+    restored,
+    selections,
     states,
     levels,
     now,
@@ -260,7 +275,12 @@ describe('RecordingService: gravação completa', () => {
   it('só áudio: sem arquivo de vídeo e o nome sugerido é a data e hora', async () => {
     const h = createHarness()
     h.setStart(started({ video: null }))
-    const result = await h.service.start({ source: { kind: 'none' }, mic: null, quality: '1080p' })
+    const result = await h.service.start({
+      source: { kind: 'none' },
+      mic: null,
+      systemAudio: true,
+      quality: '1080p'
+    })
     expect(result.ok).toBe(true)
     expect(h.commands[0]).toMatchObject({ params: { hasVideo: false, mic: null } })
 
@@ -273,6 +293,75 @@ describe('RecordingService: gravação completa', () => {
 
     const stopped = await h.service.stop()
     expect(stopped.ok && stopped.value.hasVideo).toBe(false)
+  })
+})
+
+describe('RecordingService: entradas de áudio', () => {
+  it('sem áudio do sistema: não pede o loopback e o meeting.json registra systemAudio: false', async () => {
+    const h = createHarness()
+    h.setStart(started({ hasSystemAudio: false }))
+    expect(await h.service.start({ ...windowRequest, systemAudio: false })).toEqual({
+      ok: true,
+      value: null
+    })
+    expect(h.selections[0]).toMatchObject({ systemAudio: false })
+    expect(h.commands[0]).toMatchObject({ params: { hasVideo: true, systemAudio: false } })
+    const state = h.service.getState()
+    if (state.phase !== 'recording') throw new Error('deveria estar gravando')
+    expect(state.meeting.hasSystemAudio).toBe(false)
+    const saved = await readMeeting(state.meeting.folder)
+    expect(saved.ok && saved.value.inputs).toEqual({ mic: true, systemAudio: false })
+  })
+
+  it('só áudio sem nenhuma entrada de áudio é recusado, sem criar pasta', async () => {
+    const h = createHarness()
+    const result = await h.service.start({
+      source: { kind: 'none' },
+      mic: null,
+      systemAudio: false,
+      quality: '1080p'
+    })
+    expect(!result.ok && result.error.code).toBe('invalid-request')
+    expect(h.commands).toEqual([])
+    expect(await readdir(root)).toEqual([])
+  })
+
+  it('só áudio com o microfone e sem áudio do sistema é aceito', async () => {
+    const h = createHarness()
+    h.setStart(started({ video: null, hasSystemAudio: false }))
+    const result = await h.service.start({
+      source: { kind: 'none' },
+      mic: windowRequest.mic,
+      systemAudio: false,
+      quality: '1080p'
+    })
+    expect(result.ok).toBe(true)
+  })
+
+  it('com vídeo, a Reunião pode ficar sem nenhuma entrada de áudio', async () => {
+    const h = createHarness()
+    h.setStart(started({ hasMic: false, hasSystemAudio: false }))
+    const result = await h.service.start({ ...windowRequest, mic: null, systemAudio: false })
+    expect(result.ok).toBe(true)
+    const state = h.service.getState()
+    if (state.phase !== 'recording') throw new Error('deveria estar gravando')
+    const saved = await readMeeting(state.meeting.folder)
+    expect(saved.ok && saved.value.inputs).toEqual({ mic: false, systemAudio: false })
+  })
+
+  it('janela escolhida: pede a restauração (se estiver minimizada) antes de capturar; tela e só áudio não', async () => {
+    const h = createHarness()
+    await h.service.start(windowRequest)
+    expect(h.restored).toEqual([1])
+    const other = createHarness()
+    await other.service.start({ ...windowRequest, source: { kind: 'none' } })
+    expect(other.restored).toEqual([])
+  })
+
+  it('pedido sem o campo systemAudio é recusado', async () => {
+    const h = createHarness()
+    const bad = await h.service.start({ ...windowRequest, systemAudio: undefined as never })
+    expect(!bad.ok && bad.error.code).toBe('invalid-request')
   })
 })
 
@@ -290,12 +379,14 @@ describe('RecordingService: falhas ao iniciar', () => {
     const bad = await h.service.start({
       source: { kind: 'window', id: '', name: 'x' },
       mic: null,
+      systemAudio: true,
       quality: '1080p'
     })
     expect(!bad.ok && bad.error.code).toBe('invalid-request')
     const badQuality = await h.service.start({
       source: { kind: 'none' },
       mic: null,
+      systemAudio: true,
       quality: '9k' as never
     })
     expect(!badQuality.ok && badQuality.error.code).toBe('invalid-request')

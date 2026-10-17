@@ -10,6 +10,7 @@ import {
 } from '@shared/recording'
 import type { SettingsPatch, SettingsView } from '@shared/settings'
 import { smoothLevel } from './audio-level'
+import { knownThumbnails, mergeSources } from './source-merge'
 
 /** Estado da gravação, vindo do main: consulta inicial + eventos. */
 export function useRecordingState(): RecordingState {
@@ -70,43 +71,103 @@ export interface SourcesQuery {
   refresh: () => void
 }
 
-/** Telas e janelas disponíveis; atualiza sozinho a cada `autoRefreshMs` enquanto `enabled`. */
-export function useCaptureSources(enabled: boolean, autoRefreshMs = 8000): SourcesQuery {
+/** Visibilidade e foco da janela: minimizada, oculta ou sem foco não precisa atualizar a lista. */
+function useWindowActivity(): { visible: boolean; focused: boolean } {
+  const read = (): { visible: boolean; focused: boolean } => ({
+    visible: document.visibilityState === 'visible',
+    focused: document.hasFocus()
+  })
+  const [activity, setActivity] = useState(read)
+  useEffect(() => {
+    const update = (): void => {
+      const next = read()
+      setActivity((current) =>
+        current.visible === next.visible && current.focused === next.focused ? current : next
+      )
+    }
+    document.addEventListener('visibilitychange', update)
+    window.addEventListener('focus', update)
+    window.addEventListener('blur', update)
+    update()
+    return () => {
+      document.removeEventListener('visibilitychange', update)
+      window.removeEventListener('focus', update)
+      window.removeEventListener('blur', update)
+    }
+  }, [])
+  return activity
+}
+
+/**
+ * Telas e janelas disponíveis. Enquanto `enabled` e a janela estiver visível e em foco, consulta
+ * o main `intervalMs` depois do fim da consulta anterior (nunca duas ao mesmo tempo) e junta o
+ * resultado ao que já existe, sem trocar o que não mudou.
+ */
+export function useCaptureSources(enabled: boolean, intervalMs = 5000): SourcesQuery {
   const [sources, setSources] = useState<CaptureSourceInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [version, setVersion] = useState(0)
+  const [loaded, setLoaded] = useState(false)
+  const { visible, focused } = useWindowActivity()
+  // A primeira consulta não espera o foco; depois disso, só com a janela visível e em foco.
+  const active = enabled && visible && (focused || !loaded)
+  const known = useRef<Record<string, string>>({})
+  const forceNext = useRef(false)
+  const runNow = useRef<() => void>(() => undefined)
 
   useEffect(() => {
-    if (!enabled) return
+    known.current = knownThumbnails(sources)
+  }, [sources])
+
+  useEffect(() => {
+    if (!active) return
     let cancelled = false
-    const load = (): void => {
-      window.api.invoke('capture:listSources').then(
-        (list) => {
+    let inFlight = false
+    let timer = 0
+    const run = (): void => {
+      if (inFlight) return
+      inFlight = true
+      window.clearTimeout(timer)
+      const force = forceNext.current
+      forceNext.current = false
+      window.api
+        .invoke('capture:listSources', {
+          known: known.current,
+          thumbnailWidth: Math.round(240 * (window.devicePixelRatio || 1)),
+          force
+        })
+        .then(
+          (list) => {
+            if (cancelled) return
+            setSources((current) => mergeSources(current, list))
+            setError(null)
+          },
+          (caught: unknown) => {
+            if (cancelled) return
+            setError(caught instanceof Error ? caught.message : String(caught))
+          }
+        )
+        .finally(() => {
           if (cancelled) return
-          setSources(list)
-          setError(null)
+          inFlight = false
           setLoading(false)
-        },
-        (caught: unknown) => {
-          if (cancelled) return
-          setError(caught instanceof Error ? caught.message : String(caught))
-          setLoading(false)
-        }
-      )
+          setLoaded(true)
+          timer = window.setTimeout(run, intervalMs)
+        })
     }
-    load()
-    const timer = window.setInterval(load, autoRefreshMs)
+    runNow.current = run
+    run()
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      window.clearTimeout(timer)
     }
-  }, [enabled, autoRefreshMs, version])
+  }, [active, intervalMs])
 
-  const refresh = (): void => {
+  const refresh = useCallback((): void => {
+    forceNext.current = true
     setLoading(true)
-    setVersion((current) => current + 1)
-  }
+    runNow.current()
+  }, [])
   return { sources, loading, error, refresh }
 }
 

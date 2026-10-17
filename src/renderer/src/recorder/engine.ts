@@ -1,3 +1,4 @@
+import { planDisplayRequest } from '@shared/audio-inputs'
 import {
   AUDIO_BITS_PER_SECOND,
   CAPTURE_FPS,
@@ -116,7 +117,7 @@ class ChunkedRecorder {
 }
 
 interface Capture {
-  display: MediaStream
+  display: MediaStream | null
   mic: MediaStream | null
   context: AudioContext
   video: VideoPipeline | null
@@ -150,29 +151,37 @@ export class RecorderEngine {
     const audioMime = pickMime(AUDIO_MIMES)
     if (!audioMime) throw new Error('Este computador não consegue gravar áudio Opus.')
 
-    // 1) Tela/janela + áudio do sistema. O main já escolheu a fonte para este pedido.
+    // 1) Tela/janela + áudio do sistema. O main já escolheu a fonte para este pedido. Só áudio e
+    // sem áudio do sistema: não há o que pedir (e a captura de tela nem é aberta).
     const max = captureMaxSize(params.preset)
-    let display: MediaStream
-    try {
-      display = await navigator.mediaDevices.getDisplayMedia({
-        video: params.hasVideo
-          ? {
-              frameRate: { ideal: CAPTURE_FPS, max: CAPTURE_FPS },
-              width: { max: max.width },
-              height: { max: max.height }
-            }
-          : true,
-        audio: true
-      })
-    } catch (error) {
-      throw new Error(`Não foi possível capturar a tela: ${describeMediaError(error)}.`, {
-        cause: error
-      })
+    const displayRequest = planDisplayRequest({
+      hasVideo: params.hasVideo,
+      mic: params.mic !== null,
+      systemAudio: params.systemAudio
+    })
+    let display: MediaStream | null = null
+    if (displayRequest) {
+      try {
+        display = await navigator.mediaDevices.getDisplayMedia({
+          video: params.hasVideo
+            ? {
+                frameRate: { ideal: CAPTURE_FPS, max: CAPTURE_FPS },
+                width: { max: max.width },
+                height: { max: max.height }
+              }
+            : true,
+          audio: displayRequest.audio
+        })
+      } catch (error) {
+        throw new Error(`Não foi possível capturar a tela: ${describeMediaError(error)}.`, {
+          cause: error
+        })
+      }
     }
 
-    const loopback = display.getAudioTracks()
-    const sourceTrack = display.getVideoTracks()[0]
-    if (!params.hasVideo && sourceTrack) {
+    const loopback = display?.getAudioTracks() ?? []
+    const sourceTrack = display?.getVideoTracks()[0]
+    if (display && !params.hasVideo && sourceTrack) {
       // Só áudio: o vídeo foi pedido apenas para obter o loopback.
       sourceTrack.stop()
       display.removeTrack(sourceTrack)

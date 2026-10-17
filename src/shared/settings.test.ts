@@ -30,6 +30,7 @@ describe('parseSettings', () => {
         quality: '720p',
         videoEncoder: 'hardware',
         micDeviceId: 'abc',
+        systemAudio: false,
         noteShortcut: 'Ctrl+Alt+N',
         noteLeadSeconds: 8,
         barPosition: { x: 120.4, y: -30 }
@@ -40,6 +41,7 @@ describe('parseSettings', () => {
       quality: '720p',
       videoEncoder: 'hardware',
       micDeviceId: 'abc',
+      systemAudio: false,
       noteShortcut: 'Ctrl+Alt+N',
       noteLeadSeconds: 8,
       barPosition: { x: 120, y: -30 },
@@ -47,6 +49,13 @@ describe('parseSettings', () => {
       groqTextModel: 'openai/gpt-oss-120b',
       geminiTextModel: 'gemini-3.5-flash-lite'
     })
+  })
+
+  it('áudio do sistema: ligado por padrão; só booleano é aceito', () => {
+    expect(DEFAULT_SETTINGS.systemAudio).toBe(true)
+    expect(parseSettings({ systemAudio: false }).systemAudio).toBe(false)
+    expect(parseSettings({ systemAudio: 'no' }).systemAudio).toBe(true)
+    expect(parseSettings({ micDeviceId: 'abc' }).systemAudio).toBe(true)
   })
 
   it('modelos de texto: aceita os conhecidos e volta ao padrão nos desconhecidos', () => {
@@ -104,6 +113,13 @@ describe('applySettingsPatch', () => {
     expect(next).toEqual({ ...DEFAULT_SETTINGS, quality: 'native', micDeviceId: 'xyz' })
     const ignored = applySettingsPatch(next, { quality: '8k' as never })
     expect(ignored.quality).toBe('native')
+  })
+
+  it('liga e desliga o áudio do sistema, ignorando valores que não são booleanos', () => {
+    const off = applySettingsPatch(DEFAULT_SETTINGS, { systemAudio: false })
+    expect(off).toEqual({ ...DEFAULT_SETTINGS, systemAudio: false })
+    expect(applySettingsPatch(off, { systemAudio: 'sim' as never }).systemAudio).toBe(false)
+    expect(applySettingsPatch(off, { systemAudio: true }).systemAudio).toBe(true)
   })
 
   it('micDeviceId vazio volta ao padrão do sistema (null)', () => {

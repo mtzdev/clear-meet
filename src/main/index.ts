@@ -36,6 +36,7 @@ import { getFfmpegStatus, type StatusOptions } from './ffmpeg'
 import { resolveFfmpegTools } from './ffmpeg/media'
 import { freeDiskBytes } from './fs/atomic'
 import { CaptureSources } from './capture/sources'
+import { loadWindowTools } from './capture/window-info'
 import { loadWindowStateProbe } from './capture/window-state'
 import { FloatingController } from './floating/controller'
 import { loadForegroundTools } from './floating/foreground'
@@ -177,9 +178,11 @@ if (!app.requestSingleInstanceLock()) {
       ...recorderPaths(__dirname),
       log
     })
+    const windowTools = await loadWindowTools(log)
     const captureSources = new CaptureSources(
       (contents) => recorderFactory.isRecorder(contents),
-      () => (mainWindow ? [mainWindow] : [])
+      () => BrowserWindow.getAllWindows(),
+      windowTools.traits
     )
     const thumbnailsDir = join(app.getPath('userData'), 'thumbnails')
     protocol.handle(
@@ -217,10 +220,11 @@ if (!app.requestSingleInstanceLock()) {
       config: () => ({ settings: settings.get(), meetingsDir: meetingsDir() }),
       getTools,
       createRecorder: (sink) => recorderFactory.create(sink),
-      selectSource: (source) => captureSources.select(source),
+      selectSource: (source, systemAudio) => captureSources.select(source, systemAudio),
       emit: dispatchEvent,
       freeBytes: freeDiskBytes,
       windowState,
+      restoreWindow: (hwnd) => windowTools.restoreIfMinimized(hwnd),
       keepAwake: () => {
         const id = powerSaveBlocker.start('prevent-app-suspension')
         return () => {
@@ -378,7 +382,7 @@ if (!app.requestSingleInstanceLock()) {
       createIpcHandlers({
         getAppVersion: () => app.getVersion(),
         getFfmpegStatus: () => getFfmpegStatus(ffmpegOptions),
-        listSources: () => captureSources.list(),
+        listSources: (request) => captureSources.list(request),
         preflight,
         recording: service,
         renameMeeting: async (folder, name) => {

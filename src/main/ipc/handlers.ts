@@ -7,6 +7,7 @@ import type { LibraryQuery, LibraryResult, MeetingDetail } from '@shared/library
 import type { MeetingNote } from '@shared/meeting'
 import type {
   CaptureSourceInfo,
+  ListSourcesRequest,
   FinishedRecording,
   PreflightInfo,
   RecordingState,
@@ -23,7 +24,7 @@ import type { TranscriptFile } from '@shared/transcript'
 export interface HandlerDeps {
   getAppVersion(): string
   getFfmpegStatus(): Promise<FfmpegStatus>
-  listSources(): Promise<CaptureSourceInfo[]>
+  listSources(request: ListSourcesRequest): Promise<CaptureSourceInfo[]>
   preflight(): Promise<PreflightInfo>
   recording: {
     getState(): RecordingState
@@ -93,7 +94,7 @@ export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
   return {
     'app:getVersion': () => deps.getAppVersion(),
     'ffmpeg:status': () => deps.getFfmpegStatus(),
-    'capture:listSources': () => deps.listSources(),
+    'capture:listSources': (request) => deps.listSources(request),
     'recording:preflight': () => deps.preflight(),
     'recording:getState': () => deps.recording.getState(),
     'recording:start': (request) => deps.recording.start(request),

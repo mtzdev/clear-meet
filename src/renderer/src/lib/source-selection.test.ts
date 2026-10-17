@@ -6,6 +6,8 @@ const screen: CaptureSourceInfo = {
   id: 'screen:1:0',
   kind: 'screen',
   name: 'Tela 1',
+  minimized: false,
+  thumbKey: null,
   thumbnail: null,
   appIcon: null
 }
@@ -13,6 +15,8 @@ const window1: CaptureSourceInfo = {
   id: 'window:2:0',
   kind: 'window',
   name: 'Reunião - Meet',
+  minimized: false,
+  thumbKey: null,
   thumbnail: null,
   appIcon: null
 }

@@ -7,6 +7,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { NO_MIC, useMicPreviewLevel, type MicDevice } from '@/lib/microphone'
 
 interface AudioSectionProps {
@@ -14,17 +15,27 @@ interface AudioSectionProps {
   problem: string | null
   /** `NO_MIC` ou o `deviceId` escolhido (já resolvido). */
   choice: string
+  systemAudio: boolean
   disabled?: boolean
   onChange: (choice: string) => void
+  onSystemAudioChange: (enabled: boolean) => void
 }
 
 function deviceLabel(device: MicDevice, index: number): string {
-  if (device.label) return device.label
-  return `Microfone ${index + 1}`
+  const label = device.label || `Microfone ${index + 1}`
+  return device.isDefault ? `${label} (padrão)` : label
 }
 
-/** Microfone com medidor ao vivo e a indicação do áudio do sistema. */
-export function AudioSection({ devices, problem, choice, disabled, onChange }: AudioSectionProps) {
+/** Microfone com medidor ao vivo e a chave do áudio do sistema. */
+export function AudioSection({
+  devices,
+  problem,
+  choice,
+  systemAudio,
+  disabled,
+  onChange,
+  onSystemAudioChange
+}: AudioSectionProps) {
   const level = useMicPreviewLevel(choice === NO_MIC || disabled ? null : choice)
 
   return (
@@ -42,9 +53,11 @@ export function AudioSection({ devices, problem, choice, disabled, onChange }: A
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium">Microfone</div>
               <div className="text-muted-foreground text-xs">
-                {choice === NO_MIC
-                  ? 'Só o áudio do sistema será gravado.'
-                  : 'Fale algo para ver o nível.'}
+                {choice !== NO_MIC
+                  ? 'Fale algo para ver o nível.'
+                  : systemAudio
+                    ? 'Só o áudio do sistema será gravado.'
+                    : 'O microfone não será gravado.'}
               </div>
             </div>
           </div>
@@ -70,12 +83,21 @@ export function AudioSection({ devices, problem, choice, disabled, onChange }: A
             <Volume2 className="size-4" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium">Áudio do sistema</div>
+            <label htmlFor="system-audio" className="block text-sm font-medium">
+              Áudio do sistema
+            </label>
             <div className="text-muted-foreground text-xs">
-              A voz de quem fala na reunião entra na gravação (junto com notificações e músicas).
+              {systemAudio
+                ? 'A voz de quem fala na reunião entra na gravação (junto com notificações e músicas).'
+                : 'O som do computador não será gravado.'}
             </div>
           </div>
-          <span className="text-success text-xs font-medium">Incluído</span>
+          <Switch
+            id="system-audio"
+            checked={systemAudio}
+            disabled={disabled}
+            onCheckedChange={onSystemAudioChange}
+          />
         </div>
       </div>
     </section>

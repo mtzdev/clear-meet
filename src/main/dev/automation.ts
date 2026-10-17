@@ -202,6 +202,7 @@ export async function runAutomation(deps: AutomationDeps): Promise<void> {
       request = {
         source: { kind: 'window', id: target.getMediaSourceId(), name: 'ALVO-SINTETICO ClearMeet' },
         mic: scenario.mic ? { deviceId: 'default', label: '' } : null,
+        systemAudio: true,
         quality: scenario.quality
       }
     } else if (scenario.source === 'screen') {
@@ -209,12 +210,14 @@ export async function runAutomation(deps: AutomationDeps): Promise<void> {
       request = {
         source: { kind: 'screen', ...screenSource },
         mic: scenario.mic ? { deviceId: 'default', label: '' } : null,
+        systemAudio: true,
         quality: scenario.quality
       }
     } else {
       request = {
         source: { kind: 'none' },
         mic: scenario.mic ? { deviceId: 'default', label: '' } : null,
+        systemAudio: true,
         quality: scenario.quality
       }
       // Janela sintética tocando bipes para haver áudio do sistema.

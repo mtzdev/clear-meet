@@ -11,10 +11,23 @@ export interface CaptureSourceInfo {
   id: string
   kind: 'screen' | 'window'
   name: string
-  /** Data URL (JPEG) da miniatura; `null` se o Windows não entregou. */
+  /** Janela minimizada: o Windows não a desenha, então não há miniatura (a UI mostra o ícone do app). */
+  minimized: boolean
+  /** Assinatura da miniatura; `null` = sem pré-visualização. Muda quando a imagem muda. */
+  thumbKey: string | null
+  /** Data URL (JPEG); `null` se não há miniatura ou se a UI já tem a de mesma `thumbKey`. */
   thumbnail: string | null
-  /** Ícone do app dono da janela (data URL); só para janelas. */
+  /** Ícone do app dono da janela (data URL); só vai na primeira vez que a UI vê a janela. */
   appIcon: string | null
+}
+
+export interface ListSourcesRequest {
+  /** `thumbKey` que a UI já tem por id (`''` = sem miniatura): esses dados não são reenviados. */
+  known: Record<string, string>
+  /** Largura desejada da miniatura, em pixels físicos. */
+  thumbnailWidth: number
+  /** Refaz as miniaturas agora, mesmo que ainda estejam recentes. */
+  force: boolean
 }
 
 export interface MicSelection {
@@ -25,8 +38,10 @@ export interface MicSelection {
 
 export interface StartRecordingRequest {
   source: CaptureSourceRef
-  /** `null` = sem microfone (só o áudio do sistema). */
+  /** `null` = sem microfone. */
   mic: MicSelection | null
+  /** Captura o áudio que toca no computador (loopback). */
+  systemAudio: boolean
   quality: QualityPreset
 }
 

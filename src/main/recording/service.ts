@@ -1,5 +1,6 @@
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { checkInputs, INPUTS_PROBLEM_TEXT } from '@shared/audio-inputs'
 import { CAPTURE_FPS, isQualityPreset, resolveCanvasSize } from '@shared/capture'
 import {
   clockElapsedMs,
@@ -78,11 +79,13 @@ export interface RecordingServiceDeps {
    * Escolhe a fonte que o próximo `getDisplayMedia` da janela de gravação vai receber.
    * Devolve `null` se ela não existe mais. `null` na entrada limpa a escolha.
    */
-  selectSource(source: CaptureSourceRef | null): Promise<boolean>
+  selectSource(source: CaptureSourceRef | null, systemAudio?: boolean): Promise<boolean>
   emit<E extends keyof ServiceEvents>(event: E, payload: ServiceEvents[E]): void
   freeBytes(dir: string): Promise<number | null>
   /** Impede o Windows de suspender durante a gravação; devolve a função que libera. */
   keepAwake(): () => void
+  /** Restaura sem ativar uma janela minimizada, para o Vídeo não começar congelado. */
+  restoreWindow?: (hwnd: number) => Promise<void>
   /**
    * Consulta o estado da janela gravada (minimizada, fechada). Sem ela, o aviso de janela
    * minimizada não existe.
@@ -202,7 +205,7 @@ export class RecordingService {
           fail('no-disk-space', 'Não há espaço livre suficiente no disco para gravar.')
         )
       }
-      if (!(await this.deps.selectSource(request.source))) {
+      if (!(await this.deps.selectSource(request.source, request.systemAudio))) {
         return this.abortStart(
           null,
           fail(
@@ -210,6 +213,11 @@ export class RecordingService {
             'A tela ou janela escolhida não está mais disponível. Atualize a lista e escolha de novo.'
           )
         )
+      }
+
+      if (request.source.kind === 'window') {
+        const hwnd = parseWindowHandle(request.source.id)
+        if (hwnd !== null) await this.deps.restoreWindow?.(hwnd)
       }
 
       const createdAt = new Date(this.deps.now())
@@ -231,7 +239,7 @@ export class RecordingService {
         quality: request.quality,
         video: hasVideo ? { file: MEETING_FILES.video, ...plannedSize, fps: CAPTURE_FPS } : null,
         audio: { file: MEETING_FILES.audio },
-        inputs: { mic: request.mic !== null, systemAudio: true },
+        inputs: { mic: request.mic !== null, systemAudio: request.systemAudio },
         notes: [],
         issues: []
       }
@@ -269,6 +277,7 @@ export class RecordingService {
       const params: RecorderStartParams = {
         hasVideo,
         mic: request.mic,
+        systemAudio: request.systemAudio,
         preset: request.quality,
         compaction: settings.compaction
       }
@@ -639,5 +648,12 @@ function validateRequest(request: StartRecordingRequest): string | null {
   if (mic !== null && (typeof mic?.deviceId !== 'string' || typeof mic.label !== 'string')) {
     return 'Microfone inválido.'
   }
+  if (typeof request.systemAudio !== 'boolean') return 'Áudio do sistema inválido.'
+  const inputs = checkInputs({
+    hasVideo: source.kind !== 'none',
+    mic: mic !== null,
+    systemAudio: request.systemAudio
+  })
+  if (!inputs.ok) return INPUTS_PROBLEM_TEXT[inputs.problem]
   return null
 }
