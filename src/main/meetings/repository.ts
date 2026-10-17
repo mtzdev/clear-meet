@@ -58,11 +58,20 @@ export async function writeMeeting(folder: string, meeting: MeetingFile): Promis
   await writeFileAtomic(join(folder, MEETING_FILE), serializeMeeting(meeting))
 }
 
+/** Prefixo da pasta temporária em que uma Reunião fica enquanto é excluída; as listagens a ignoram. */
+export const STAGING_PREFIX = '.excluindo-'
+
+export function isStagingName(name: string): boolean {
+  return name.startsWith(STAGING_PREFIX)
+}
+
 /** Pastas diretamente dentro de `root` (cada uma pode ser uma Reunião). Raiz inexistente = lista vazia. */
 export async function listMeetingFolders(root: string): Promise<string[]> {
   try {
     const entries = await readdir(root, { withFileTypes: true })
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => join(root, entry.name))
+    return entries
+      .filter((entry) => entry.isDirectory() && !isStagingName(entry.name))
+      .map((entry) => join(root, entry.name))
   } catch {
     return []
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { listStatus, lockFor, type MeetingListItem } from './library'
+import { listBlock, listStatus, lockFor, type MeetingListItem } from './library'
 
 type StatusInput = Pick<MeetingListItem, 'status' | 'live' | 'transcriptStatus' | 'summaryStatus'>
 
@@ -65,5 +65,39 @@ describe('lockFor', () => {
     expect(lockFor('recording', false)).toBe('recording')
     expect(lockFor('processing', false)).toBe('unfinished')
     expect(lockFor('unprocessed', false)).toBe('unfinished')
+  })
+})
+
+describe('listBlock', () => {
+  it('Reunião pronta e parada pode ser renomeada e excluída', () => {
+    expect(listBlock(input(), 'rename')).toBeNull()
+    expect(listBlock(input(), 'delete')).toBeNull()
+  })
+
+  it('gravando agora bloqueia as duas ações', () => {
+    expect(listBlock(input({ live: true }), 'rename')).toBe('recording')
+    expect(listBlock(input({ live: true }), 'delete')).toBe('recording')
+  })
+
+  it('Transcrição ou Resumo em andamento bloqueiam as duas ações', () => {
+    for (const action of ['rename', 'delete'] as const) {
+      expect(listBlock(input({ transcriptStatus: 'running' }), action)).toBe('transcribing')
+      expect(listBlock(input({ summaryStatus: 'running' }), action)).toBe('summarizing')
+    }
+  })
+
+  it('renomear segue o bloqueio de edição; excluir libera interrompida e arquivos pendentes', () => {
+    expect(listBlock(input({ status: 'recording' }), 'rename')).toBe('recording')
+    expect(listBlock(input({ status: 'unprocessed' }), 'rename')).toBe('unfinished')
+    expect(listBlock(input({ status: 'processing' }), 'rename')).toBe('unfinished')
+    expect(listBlock(input({ status: 'recording' }), 'delete')).toBeNull()
+    expect(listBlock(input({ status: 'unprocessed' }), 'delete')).toBeNull()
+    expect(listBlock(input({ status: 'processing' }), 'delete')).toBe('unfinished')
+  })
+
+  it('erro de IA não bloqueia', () => {
+    const failed = input({ transcriptStatus: 'error', summaryStatus: 'error' })
+    expect(listBlock(failed, 'rename')).toBeNull()
+    expect(listBlock(failed, 'delete')).toBeNull()
   })
 })

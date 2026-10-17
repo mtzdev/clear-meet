@@ -36,9 +36,11 @@ export interface HandlerDeps {
   }
   renameMeeting(folder: string, name: string): Promise<Result<RenamedMeeting>>
   revealMeeting(folder: string): Promise<void>
+  deleteMeeting(folder: string): Promise<Result<null>>
   library: {
     search(query: LibraryQuery): Promise<LibraryResult>
     refresh(): Promise<void>
+    notes(id: string): Promise<Result<MeetingNote[]>>
   }
   meetings: {
     get(id: string): Promise<Result<MeetingDetail>>
@@ -110,11 +112,13 @@ export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
       await deps.revealMeeting(request.folder)
       return null
     },
+    'meeting:delete': (request) => deps.deleteMeeting(request.folder),
     'library:search': (request) => deps.library.search(request),
     'library:refresh': async () => {
       await deps.library.refresh()
       return null
     },
+    'library:notes': (request) => deps.library.notes(request.id),
     'meeting:get': (request) => deps.meetings.get(request.id),
     'meeting:addNote': (request) =>
       deps.meetings.addNote(request.folder, request.offsetMs, request.text),

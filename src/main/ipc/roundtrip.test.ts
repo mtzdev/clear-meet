@@ -61,10 +61,12 @@ function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
     renameMeeting: (folder, name) =>
       Promise.resolve({ ok: true, value: { folder, name, folderRenamed: true } }),
     revealMeeting: () => Promise.resolve(),
+    deleteMeeting: () => Promise.resolve(ok),
     library: {
       search: () =>
         Promise.resolve({ entries: [], total: 0, indexed: 0, skipped: 0, updating: false }),
-      refresh: () => Promise.resolve()
+      refresh: () => Promise.resolve(),
+      notes: () => Promise.resolve({ ok: true, value: [] })
     },
     meetings: {
       get: () =>
@@ -178,6 +180,32 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
     })
   })
 
+  it('excluir e a prévia das Anotações chegam aos handlers', async () => {
+    const deleted: string[] = []
+    const { api } = createWiredApi(
+      fakeDeps({
+        deleteMeeting: (folder) => {
+          deleted.push(folder)
+          return Promise.resolve(ok)
+        },
+        library: {
+          search: () =>
+            Promise.resolve({ entries: [], total: 0, indexed: 0, skipped: 0, updating: false }),
+          refresh: () => Promise.resolve(),
+          notes: (id) =>
+            Promise.resolve({
+              ok: true,
+              value: [{ id: 'n1', offsetMs: 1000, text: id, createdAt: '2026-10-10T18:00:00.000Z' }]
+            })
+        }
+      })
+    )
+    expect(await api.invoke('meeting:delete', { folder: 'C:\\m\\a' })).toEqual(ok)
+    expect(deleted).toEqual(['C:\\m\\a'])
+    const notes = await api.invoke('library:notes', { id: 'abc' })
+    expect(notes.ok && notes.value[0]?.text).toBe('abc')
+  })
+
   it('os canais das Reuniões e Anotações chegam aos handlers', async () => {
     const { api } = createWiredApi(
       fakeDeps({
@@ -190,7 +218,8 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
               skipped: 2,
               updating: false
             }),
-          refresh: () => Promise.resolve()
+          refresh: () => Promise.resolve(),
+          notes: () => Promise.resolve({ ok: true, value: [] })
         },
         meetings: {
           get: (id) =>

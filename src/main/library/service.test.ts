@@ -7,6 +7,7 @@ import { MEETING_FILE } from '@shared/meeting'
 import { parseThumbnailUrl } from '@shared/media'
 import type { FfmpegTools, ProcessResult, RunProcess } from '../ffmpeg/media'
 import { addMeetingNote, deleteMeetingNote } from '../meetings/notes-store'
+import { deleteMeetingFolder } from '../meetings/delete'
 import { renameMeeting } from '../meetings/repository'
 import { renameTranscriptSpeaker } from '../meetings/transcript-store'
 import { hasFts5 } from './db'
@@ -672,5 +673,68 @@ suite('miniaturas', () => {
     await rm(folder, { recursive: true })
     await sync(service)
     await expect(readFile(join(userData, 'thumbnails', 'a.jpg'))).rejects.toThrow()
+  })
+})
+
+suite('exclusão', () => {
+  it('excluir a Reunião tira a linha do índice, a pasta e a miniatura; as outras ficam', async () => {
+    const folder = await createFolder(root, 'a', spec('a', 'A', 1, { files: { 'video.mp4': 'v' } }))
+    await createFolder(root, 'b', spec('b', 'B', 2, { files: { 'video.mp4': 'v' } }))
+    const { service, changes } = createService()
+    await sync(service)
+    const thumbnail = join(userData, 'thumbnails', 'a.jpg')
+    expect(await readFile(thumbnail, 'utf8')).toBe('JPEG')
+    const before = changes.count
+
+    expect(await deleteMeetingFolder(root, folder)).toEqual({ ok: true, value: null })
+    await service.refresh(folder)
+
+    expect(await names(service)).toEqual(['B'])
+    expect((await service.search(query())).indexed).toBe(1)
+    expect((await service.search(query({ text: 'A' }))).entries).toEqual([])
+    await expect(readFile(thumbnail)).rejects.toThrow()
+    await expect(readFile(join(userData, 'thumbnails', 'b.jpg'), 'utf8')).resolves.toBe('JPEG')
+    expect(changes.count).toBeGreaterThan(before)
+  })
+
+  it('exclusão que falha deixa a Reunião no índice, como está no disco', async () => {
+    const folder = await createFolder(root, 'a', spec('a', 'A', 1, { files: { 'video.mp4': 'v' } }))
+    const { service } = createService()
+    await sync(service)
+
+    const result = await deleteMeetingFolder(root, folder, {
+      renameFolder: () => Promise.reject(new Error('EBUSY')),
+      removeFolder: () => Promise.resolve()
+    })
+    expect(result.ok).toBe(false)
+    await service.refresh(folder)
+
+    expect(await names(service)).toEqual(['A'])
+    await expect(readFile(join(userData, 'thumbnails', 'a.jpg'), 'utf8')).resolves.toBe('JPEG')
+  })
+
+  it('apagar a pasta e reconciliar (sem refresh) também limpa índice e miniatura', async () => {
+    const folder = await createFolder(root, 'a', spec('a', 'A', 1, { files: { 'video.mp4': 'v' } }))
+    const { service } = createService()
+    await sync(service)
+    await deleteMeetingFolder(root, folder)
+    await sync(service)
+    expect(await names(service)).toEqual([])
+    await expect(readFile(join(userData, 'thumbnails', 'a.jpg'))).rejects.toThrow()
+  })
+
+  it('notesFor devolve as Anotações do meeting.json; Reunião inexistente = null', async () => {
+    await createFolder(
+      root,
+      'a',
+      spec('a', 'A', 1, {
+        meeting: { notes: [makeNote('1', 5000, 'cinco'), makeNote('2', 1000, 'um')] }
+      })
+    )
+    const { service } = createService()
+    await sync(service)
+    const notes = await service.notesFor('a')
+    expect(notes?.map((note) => note.text).sort()).toEqual(['cinco', 'um'])
+    expect(await service.notesFor('nao-existe')).toBeNull()
   })
 })

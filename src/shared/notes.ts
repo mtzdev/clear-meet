@@ -1,5 +1,6 @@
 import { clockElapsedMs, type ClockSnapshot } from './clock'
 import type { MeetingNote } from './meeting'
+import { formatInstant } from './timeline'
 
 /**
  * Anotações ao vivo (Fase 3). Lógica pura: o main escolhe o Instante e valida o texto; a
@@ -51,4 +52,31 @@ export function replaceNoteText(
 export function removeNote(notes: readonly MeetingNote[], id: string): MeetingNote[] | null {
   if (!notes.some((note) => note.id === id)) return null
   return notes.filter((note) => note.id !== id)
+}
+
+export interface NotePreviewItem {
+  id: string
+  offsetMs: number
+  /** Instante como `mm:ss`. */
+  label: string
+  text: string
+}
+
+/** Anotações para a prévia da lista: por Instante (empates na ordem de criação) e sem texto vazio. */
+export function notePreview(notes: readonly MeetingNote[]): NotePreviewItem[] {
+  return notes
+    .map((note, index) => ({ note, index }))
+    .filter(({ note }) => note.text.trim() !== '')
+    .sort(
+      (a, b) =>
+        a.note.offsetMs - b.note.offsetMs ||
+        a.note.createdAt.localeCompare(b.note.createdAt) ||
+        a.index - b.index
+    )
+    .map(({ note }) => ({
+      id: note.id,
+      offsetMs: note.offsetMs,
+      label: formatInstant(note.offsetMs),
+      text: note.text.trim()
+    }))
 }

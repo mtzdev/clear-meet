@@ -1,6 +1,7 @@
 import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { MEETING_FILES } from '@shared/meeting'
+import { isStagingName } from '../meetings/repository'
 
 export interface FolderScan {
   /** Tamanho e data de cada arquivo da pasta (sem subpastas). */
@@ -63,7 +64,9 @@ export async function scanFolder(folder: string): Promise<FolderScan | null> {
 export async function listFolderNames(root: string): Promise<string[]> {
   try {
     const entries = await readdir(root, { withFileTypes: true })
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+    return entries
+      .filter((entry) => entry.isDirectory() && !isStagingName(entry.name))
+      .map((entry) => entry.name)
   } catch {
     return []
   }

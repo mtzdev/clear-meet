@@ -79,3 +79,13 @@ body.floating {
 .app-no-drag {
   -webkit-app-region: no-drag;
 }
+
+/* Janelinhas, menus e diálogos aparecem sem animação para quem pede menos movimento. */
+@media (prefers-reduced-motion: reduce) {
+  [data-slot='popover-content'],
+  [data-slot='context-menu-content'],
+  [data-slot='alert-dialog-content'],
+  [data-slot='alert-dialog-overlay'] {
+    animation: none !important;
+  }
+}

@@ -49,6 +49,8 @@ import { loadSqlite } from './library/sqlite'
 import { createMediaHandler } from './media/handler'
 import { loadMeetingDetail } from './meetings/library'
 import { addMeetingNote, deleteMeetingNote, editMeetingNote } from './meetings/notes-store'
+import { deleteMeetingFolder } from './meetings/delete'
+import { sameFolder } from './meetings/paths'
 import { isDirectChild, renameMeeting } from './meetings/repository'
 import { readSummary } from './meetings/summary-store'
 import { readTranscript, renameTranscriptSpeaker } from './meetings/transcript-store'
@@ -417,6 +419,34 @@ if (!app.requestSingleInstanceLock()) {
           }
           return result
         },
+        deleteMeeting: async (folder) => {
+          if (typeof folder !== 'string') {
+            return {
+              ok: false,
+              error: { code: 'invalid-request', message: 'Pedido inválido.' }
+            }
+          }
+          const recordingFolder = service.activeFolder()
+          if (
+            transcription.isActive(folder) ||
+            summary.isActive(folder) ||
+            chat.isActive(folder) ||
+            (recordingFolder !== null && sameFolder(folder, recordingFolder))
+          ) {
+            return {
+              ok: false,
+              error: {
+                code: 'busy',
+                message: 'A Reunião está em uso (gravação ou IA). Exclua quando terminar.'
+              }
+            }
+          }
+          const result = await deleteMeetingFolder(meetingsDir(), folder)
+          if (result.ok) service.clearFinished(folder)
+          // O índice relê a pasta: some se foi excluída e reflete o que sobrou se a exclusão falhou.
+          await libraryIndex.refresh(folder)
+          return result
+        },
         revealMeeting: async (folder) => {
           if (isDirectChild(meetingsDir(), folder)) await shell.openPath(folder)
         },
@@ -425,6 +455,15 @@ if (!app.requestSingleInstanceLock()) {
           refresh: () => {
             void libraryIndex.reconcile()
             return Promise.resolve()
+          },
+          notes: async (id) => {
+            const notes = await libraryIndex.notesFor(id)
+            return notes
+              ? { ok: true, value: notes }
+              : {
+                  ok: false,
+                  error: { code: 'not-found', message: 'A Reunião não foi encontrada.' }
+                }
           }
         },
         meetings: {

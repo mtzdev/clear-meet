@@ -1,12 +1,32 @@
-import { FileText, NotebookText, Sparkles } from 'lucide-react'
+import { FileText, Pencil, Sparkles, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { DeleteMeetingDialog } from '@/components/library/delete-meeting-dialog'
+import { NotesPreview } from '@/components/library/notes-preview'
 import { Snippet } from '@/components/library/snippet'
 import { StatusBadge } from '@/components/library/status-badge'
 import { Thumbnail } from '@/components/library/thumbnail'
+import { TitleEditor } from '@/components/library/title-editor'
 import { SourceIcon } from '@/components/meeting/source-icon'
+import { Button } from '@/components/ui/button'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuShortcut,
+  ContextMenuTrigger
+} from '@/components/ui/context-menu'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatBytes, formatDateTime, formatDuration } from '@/lib/format'
 import { SOURCE_KIND_LABEL } from '@/lib/meeting-text'
 import { meetingHref } from '@/lib/router'
-import type { HitKind, LibraryEntry, SearchHit } from '@shared/library'
+import { cn } from '@/lib/utils'
+import {
+  listBlock,
+  LIST_BLOCK_TEXT,
+  type HitKind,
+  type LibraryEntry,
+  type SearchHit
+} from '@shared/library'
 import { formatInstant } from '@shared/timeline'
 
 const HIT_LABEL: Record<HitKind, string> = {
@@ -15,6 +35,8 @@ const HIT_LABEL: Record<HitKind, string> = {
   note: 'Anotação',
   summary: 'Resumo'
 }
+
+const FOLDER_NOTICE_MS = 8000
 
 function HitLink({ id, hit }: { id: string; hit: SearchHit }) {
   return (
@@ -42,7 +64,50 @@ function HitLink({ id, hit }: { id: string; hit: SearchHit }) {
   )
 }
 
-/** Uma Reunião na lista: o cartão todo abre a Reunião; cada trecho achado abre já no Instante. */
+/** Botão de ícone que, bloqueado, continua focável e explica o motivo no tooltip. */
+function ActionButton({
+  label,
+  blocked,
+  onClick,
+  className,
+  children
+}: {
+  label: string
+  /** Motivo do bloqueio, ou `null` se a ação está liberada. */
+  blocked: string | null
+  onClick: () => void
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={label}
+          aria-disabled={blocked !== null}
+          className={cn(
+            'relative z-10 shrink-0 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent',
+            className
+          )}
+          onClick={() => {
+            if (blocked === null) onClick()
+          }}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{blocked ?? label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * Uma Reunião na lista: o cartão todo abre a Reunião; cada trecho achado abre já no Instante.
+ * Editar o título, excluir e a prévia das Anotações ficam sobre o cartão (o menu de contexto
+ * também oferece as duas ações).
+ */
 export function MeetingCard({ entry }: { entry: LibraryEntry }) {
   const { meeting, hits, hitCount } = entry
   const source =
@@ -54,66 +119,154 @@ export function MeetingCard({ entry }: { entry: LibraryEntry }) {
     meeting.durationMs !== null ? formatDuration(meeting.durationMs) : null,
     formatBytes(meeting.sizeBytes)
   ].filter((part): part is string => Boolean(part))
-  const notes = meeting.noteCount === 1 ? 'Anotação' : 'Anotações'
+
+  const [editing, setEditing] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  /** Nome recém-salvo, mostrado até o índice trazer o novo nome. */
+  const [saved, setSaved] = useState<{ from: string; to: string } | null>(null)
+  const [folderNotice, setFolderNotice] = useState(false)
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(noticeTimer.current), [])
+
+  const renameBlock = listBlock(meeting, 'rename')
+  const deleteBlock = listBlock(meeting, 'delete')
+  const renameReason = renameBlock && LIST_BLOCK_TEXT[renameBlock]
+  const deleteReason = deleteBlock && LIST_BLOCK_TEXT[deleteBlock]
+  const name = saved?.from === meeting.name ? saved.to : meeting.name
+
+  const startEditing = (): void => {
+    if (renameBlock === null) setEditing(true)
+  }
+  const askDelete = (): void => {
+    if (deleteBlock === null) setConfirmingDelete(true)
+  }
+
+  const save = async (next: string): Promise<string | null> => {
+    try {
+      const result = await window.api.invoke('meeting:rename', {
+        folder: meeting.folder,
+        name: next
+      })
+      if (!result.ok) return result.error.message
+      setSaved({ from: meeting.name, to: result.value.name })
+      if (!result.value.folderRenamed) {
+        setFolderNotice(true)
+        clearTimeout(noticeTimer.current)
+        noticeTimer.current = setTimeout(() => setFolderNotice(false), FOLDER_NOTICE_MS)
+      }
+      return null
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+  }
 
   return (
-    <li className="border-border hover:bg-accent/40 focus-within:ring-ring/60 relative rounded-xl border transition-colors focus-within:ring-2">
-      <div className="flex gap-4 p-3">
-        <Thumbnail item={meeting} className="w-36" />
-        <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5">
-          <div className="flex items-start gap-2">
-            <a
-              href={meetingHref(meeting.id)}
-              className="min-w-0 flex-1 truncate text-sm font-medium outline-none after:absolute after:inset-0 after:rounded-xl after:content-['']"
-            >
-              {meeting.name}
-            </a>
-            <StatusBadge item={meeting} />
-          </div>
-          <p className="text-muted-foreground truncate text-xs">{details.join(' · ')}</p>
-          <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-            <span className="flex min-w-0 items-center gap-1.5">
-              <SourceIcon kind={meeting.source.kind} className="size-3.5" />
-              <span className="truncate">{source}</span>
-            </span>
-            <span
-              className="flex items-center gap-1 tabular-nums"
-              title={`${meeting.noteCount} ${notes}`}
-            >
-              <NotebookText className="size-3.5" aria-hidden />
-              {meeting.noteCount}
-              <span className="sr-only">{notes}</span>
-            </span>
-            {meeting.transcriptStatus === 'ready' && (
-              <span className="flex items-center gap-1">
-                <FileText className="size-3.5" aria-hidden />
-                Transcrição
-              </span>
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <li className="group/card border-border hover:bg-accent/40 focus-within:ring-ring/60 relative rounded-xl border transition-colors focus-within:ring-2">
+            <div className="relative flex gap-4 p-3 pr-14">
+              <Thumbnail item={meeting} className="w-36" />
+              <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5">
+                <div className="flex items-start gap-2">
+                  {editing ? (
+                    <TitleEditor name={name} onSave={save} onClose={() => setEditing(false)} />
+                  ) : (
+                    <div className="flex min-w-0 flex-1 items-center gap-1">
+                      <a
+                        href={meetingHref(meeting.id)}
+                        className="min-w-0 truncate text-sm font-medium outline-none after:absolute after:inset-0 after:rounded-xl after:content-['']"
+                      >
+                        {name}
+                      </a>
+                      <ActionButton
+                        label="Editar título"
+                        blocked={renameReason}
+                        onClick={startEditing}
+                        className="opacity-0 group-focus-within/card:opacity-100 group-hover/card:opacity-100 focus-visible:opacity-100 aria-disabled:group-focus-within/card:opacity-50 aria-disabled:group-hover/card:opacity-50"
+                      >
+                        <Pencil aria-hidden />
+                      </ActionButton>
+                    </div>
+                  )}
+                  <StatusBadge item={meeting} />
+                </div>
+                <p className="text-muted-foreground truncate text-xs">{details.join(' · ')}</p>
+                {folderNotice && (
+                  <p role="status" className="text-warning relative z-10 text-xs">
+                    Nome salvo. A pasta mantém o nome antigo porque está em uso.
+                  </p>
+                )}
+                <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <SourceIcon kind={meeting.source.kind} className="size-3.5" />
+                    <span className="truncate">{source}</span>
+                  </span>
+                  <NotesPreview meetingId={meeting.id} count={meeting.noteCount} />
+                  {meeting.transcriptStatus === 'ready' && (
+                    <span className="flex items-center gap-1">
+                      <FileText className="size-3.5" aria-hidden />
+                      Transcrição
+                    </span>
+                  )}
+                  {meeting.summaryStatus === 'ready' && (
+                    <span className="flex items-center gap-1">
+                      <Sparkles className="size-3.5" aria-hidden />
+                      Resumo
+                    </span>
+                  )}
+                </div>
+              </div>
+              <ActionButton
+                label="Excluir Reunião"
+                blocked={deleteReason}
+                onClick={askDelete}
+                className="hover:text-destructive absolute top-1/2 right-3 -translate-y-1/2"
+              >
+                <Trash2 aria-hidden />
+              </ActionButton>
+            </div>
+            {hits.length > 0 && (
+              <ul className="border-border relative z-10 space-y-0.5 border-t px-2 py-2">
+                {hits.map((hit, index) => (
+                  <li key={index}>
+                    <HitLink id={meeting.id} hit={hit} />
+                  </li>
+                ))}
+                {hitCount > hits.length && (
+                  <li className="text-muted-foreground px-2 pt-1 text-xs">
+                    +{hitCount - hits.length} {hitCount - hits.length === 1 ? 'trecho' : 'trechos'}{' '}
+                    nesta Reunião
+                  </li>
+                )}
+              </ul>
             )}
-            {meeting.summaryStatus === 'ready' && (
-              <span className="flex items-center gap-1">
-                <Sparkles className="size-3.5" aria-hidden />
-                Resumo
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-      {hits.length > 0 && (
-        <ul className="border-border relative z-10 space-y-0.5 border-t px-2 py-2">
-          {hits.map((hit, index) => (
-            <li key={index}>
-              <HitLink id={meeting.id} hit={hit} />
-            </li>
-          ))}
-          {hitCount > hits.length && (
-            <li className="text-muted-foreground px-2 pt-1 text-xs">
-              +{hitCount - hits.length} {hitCount - hits.length === 1 ? 'trecho' : 'trechos'} nesta
-              Reunião
-            </li>
-          )}
-        </ul>
-      )}
-    </li>
+          </li>
+        </ContextMenuTrigger>
+        <ContextMenuContent onCloseAutoFocus={(event) => event.preventDefault()}>
+          <ContextMenuItem disabled={renameBlock !== null} onSelect={startEditing}>
+            <Pencil aria-hidden />
+            Editar título
+            {renameReason && <ContextMenuShortcut>{renameReason}</ContextMenuShortcut>}
+          </ContextMenuItem>
+          <ContextMenuItem
+            variant="destructive"
+            disabled={deleteBlock !== null}
+            onSelect={askDelete}
+          >
+            <Trash2 aria-hidden />
+            Excluir
+            {deleteReason && <ContextMenuShortcut>{deleteReason}</ContextMenuShortcut>}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+      <DeleteMeetingDialog
+        open={confirmingDelete}
+        onOpenChange={setConfirmingDelete}
+        id={meeting.id}
+        folder={meeting.folder}
+        name={name}
+      />
+    </>
   )
 }

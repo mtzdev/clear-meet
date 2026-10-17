@@ -7,6 +7,7 @@ import {
   MAX_NOTE_LENGTH,
   noteOffsetMs,
   normalizeNoteText,
+  notePreview,
   removeNote,
   replaceNoteText
 } from './notes'
@@ -106,5 +107,39 @@ describe('replaceNoteText / removeNote', () => {
   it('devolve null quando a Anotação não existe', () => {
     expect(replaceNoteText(notes, 'x', 'z')).toBeNull()
     expect(removeNote(notes, 'x')).toBeNull()
+  })
+})
+
+describe('notePreview', () => {
+  const note = (id: string, offsetMs: number, text: string, createdAt: string): MeetingNote => ({
+    id,
+    offsetMs,
+    text,
+    createdAt
+  })
+
+  it('ordena por Instante, desempata pela criação e formata mm:ss', () => {
+    const preview = notePreview([
+      note('c', 90_000, 'depois', '2026-10-10T18:00:00.000Z'),
+      note('b', 5000, 'segunda', '2026-10-10T18:02:00.000Z'),
+      note('a', 5000, 'primeira', '2026-10-10T18:01:00.000Z'),
+      note('d', 3_725_000, 'longa', '2026-10-10T18:03:00.000Z')
+    ])
+    expect(preview.map((item) => [item.id, item.label])).toEqual([
+      ['a', '00:05'],
+      ['b', '00:05'],
+      ['c', '01:30'],
+      ['d', '1:02:05']
+    ])
+  })
+
+  it('limpa o texto, descarta vazias e não altera a entrada', () => {
+    const input = [
+      note('a', 0, '  oi  ', '2026-10-10T18:00:00.000Z'),
+      note('b', 1, '   ', '2026-10-10T18:00:00.000Z')
+    ]
+    expect(notePreview(input).map((item) => item.text)).toEqual(['oi'])
+    expect(input).toHaveLength(2)
+    expect(notePreview([])).toEqual([])
   })
 })

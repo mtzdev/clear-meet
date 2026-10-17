@@ -44,6 +44,10 @@ export interface IpcContract {
   /** Renomeia a Reunião no `meeting.json` e, se possível, a pasta. */
   'meeting:rename': { request: { folder: string; name: string }; response: Result<RenamedMeeting> }
   'meeting:reveal': { request: { folder: string }; response: null }
+  /** Exclui a Reunião de forma definitiva: a pasta inteira, o índice e a miniatura. */
+  'meeting:delete': { request: { folder: string }; response: Result<null> }
+  /** Anotações de uma Reunião pelo `id`, ordenadas por Instante (prévia na lista). */
+  'library:notes': { request: { id: string }; response: Result<MeetingNote[]> }
   /** Lista e busca de Reuniões no índice (nome, conteúdo, datas, ordenação). */
   'library:search': { request: LibraryQuery; response: LibraryResult }
   /** Reconcilia o índice com as pastas (abrir a tela Reuniões); ignorado se acabou de rodar. */
@@ -172,6 +176,8 @@ export const IPC_CHANNELS = {
   'recording:acknowledge': true,
   'meeting:rename': true,
   'meeting:reveal': true,
+  'meeting:delete': true,
+  'library:notes': true,
   'library:search': true,
   'library:refresh': true,
   'meeting:get': true,

@@ -163,3 +163,37 @@ export interface MeetingDetail {
   transcript: TranscriptView
   summary: SummaryView
 }
+
+export type ListAction = 'rename' | 'delete'
+
+/** Por que uma ação da lista (editar título, excluir) está bloqueada. */
+export type ListBlock = 'recording' | 'unfinished' | 'transcribing' | 'summarizing'
+
+export const LIST_BLOCK_TEXT: Record<ListBlock, string> = {
+  recording: 'Gravando agora',
+  unfinished: 'Aguarde terminar de processar',
+  transcribing: 'Transcrevendo agora',
+  summarizing: 'Resumindo agora'
+}
+
+/**
+ * Motivo para bloquear a ação sobre a Reunião da lista, ou `null` se está liberada. Renomear
+ * segue o bloqueio de edição da tela da Reunião; excluir só barra o que o app está escrevendo
+ * agora (uma Reunião interrompida ou com arquivos pendentes pode ser excluída).
+ * A Conversa em andamento só o main sabe: ele recusa o pedido com a mesma mensagem de "ocupada".
+ */
+export function listBlock(
+  item: Pick<MeetingListItem, 'status' | 'live' | 'transcriptStatus' | 'summaryStatus'>,
+  action: ListAction
+): ListBlock | null {
+  if (action === 'rename') {
+    const lock = lockFor(item.status, item.live)
+    if (lock) return lock
+  } else {
+    if (item.live) return 'recording'
+    if (item.status === 'processing') return 'unfinished'
+  }
+  if (item.transcriptStatus === 'running') return 'transcribing'
+  if (item.summaryStatus === 'running') return 'summarizing'
+  return null
+}

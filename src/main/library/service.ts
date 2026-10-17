@@ -8,7 +8,7 @@ import {
   type MeetingListItem,
   type SearchHit
 } from '@shared/library'
-import { MEETING_FILE, MEETING_FILES } from '@shared/meeting'
+import { MEETING_FILE, MEETING_FILES, type MeetingNote } from '@shared/meeting'
 import { thumbnailUrl } from '@shared/media'
 import type { RecordingState } from '@shared/recording'
 import { buildFtsQuery, makeSnippet, searchTokens } from '@shared/search'
@@ -239,6 +239,14 @@ export class LibraryService {
       if (read.ok && read.value.id === id) return folder
     }
     return findMeetingFolder(root, id)
+  }
+
+  /** Anotações da Reunião `id`, lidas do `meeting.json` (a verdade); `null` se ela não existe mais. */
+  async notesFor(id: string): Promise<MeetingNote[] | null> {
+    const folder = await this.folderFor(id)
+    if (!folder) return null
+    const read = await readMeeting(folder)
+    return read.ok && read.value.id === id ? read.value.notes : null
   }
 
   // --- Atualização ----------------------------------------------------------------------------

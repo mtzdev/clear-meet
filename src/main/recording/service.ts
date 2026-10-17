@@ -46,6 +46,7 @@ import type { AppSettings } from '@shared/settings'
 import { parseWindowHandle, type WindowStateProbe } from '../capture/window-state'
 import type { FfmpegTools, RunProcess } from '../ffmpeg/media'
 import { createUniqueFolder, meetingFolderBase, suggestMeetingName } from '../meetings/folder-name'
+import { sameFolder } from '../meetings/paths'
 import { newMeetingId, writeMeeting } from '../meetings/repository'
 import { applyFinalize, finalizeParts } from './finalize'
 import { PartWriter } from './part-writer'
@@ -624,6 +625,14 @@ export class RecordingService {
     this.session = null
     this.setState({ phase: 'idle', finished })
     return { ok: true, value: finished }
+  }
+
+  /** A Reunião recém-gravada foi excluída: a tela de Gravar deixa de mostrá-la. */
+  clearFinished(folder: string): void {
+    const state = this.state
+    if (state.phase === 'idle' && state.finished && sameFolder(state.finished.folder, folder)) {
+      this.setState(IDLE_STATE)
+    }
   }
 
   /** Atualiza o nome mostrado/salvo da Reunião que acabou de ser gravada (após renomear a pasta). */
