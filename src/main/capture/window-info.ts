@@ -11,6 +11,8 @@ export interface WindowTools {
    * lista, então a lista de Fontes as completa com estas.
    */
   minimizedWindows(): { id: string; name: string }[]
+  /** Caminho do executável dono da janela; `null` se não der para obter. */
+  executablePath(sourceId: string): string | null
   /**
    * Se a janela está minimizada, restaura sem ativá-la (o foco fica onde está) e espera ela
    * voltar. Nunca lança.
@@ -21,6 +23,7 @@ export interface WindowTools {
 export const NO_WINDOW_TOOLS: WindowTools = {
   traits: () => null,
   minimizedWindows: () => [],
+  executablePath: () => null,
   restoreIfMinimized: () => Promise.resolve()
 }
 
@@ -32,6 +35,8 @@ const DWMWA_CLOAKED = 14
 const SW_SHOWNOACTIVATE = 4
 const GW_OWNER = 4
 const MAX_TITLE = 512
+const MAX_PATH_CHARS = 1024
+const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 const RESTORE_POLL_MS = 50
 const RESTORE_TIMEOUT_MS = 1000
 /** Tempo para a janela repintar depois de restaurada, antes de a captura começar. */
@@ -67,6 +72,17 @@ export async function loadWindowTools(log: (message: string) => void): Promise<W
     )
     koffi.proto('bool __stdcall CM_ENUM(intptr_t hwnd, intptr_t param)')
     const enumWindows = user32.func('bool __stdcall EnumWindows(CM_ENUM *callback, intptr_t param)')
+    const kernel32 = koffi.load('kernel32.dll')
+    const getProcessId = user32.func(
+      'uint32 __stdcall GetWindowThreadProcessId(intptr_t hwnd, _Out_ uint32_t *pid)'
+    )
+    const openProcess = kernel32.func(
+      'intptr_t __stdcall OpenProcess(uint32 access, int inherit, uint32 pid)'
+    )
+    const queryImageName = kernel32.func(
+      'int __stdcall QueryFullProcessImageNameW(intptr_t process, uint32 flags, _Out_ uint16_t *path, _Inout_ uint32_t *size)'
+    )
+    const closeHandle = kernel32.func('int __stdcall CloseHandle(intptr_t handle)')
     const showWindow = user32.func('int __stdcall ShowWindow(intptr_t hwnd, int command)')
     const getAttribute = dwmapi.func(
       'int32 __stdcall DwmGetWindowAttribute(intptr_t hwnd, uint32 attribute, _Out_ int32 *value, uint32 size)'
@@ -137,6 +153,29 @@ export async function loadWindowTools(log: (message: string) => void): Promise<W
       return found
     }
 
+    const executablePath = (sourceId: string): string | null => {
+      const hwnd = parseWindowHandle(sourceId)
+      if (hwnd === null) return null
+      try {
+        const pid = [0]
+        getProcessId(hwnd, pid)
+        if (!pid[0]) return null
+        const process = Number(openProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid[0]))
+        if (process === 0) return null
+        try {
+          const path = new Uint16Array(MAX_PATH_CHARS)
+          const size = [MAX_PATH_CHARS]
+          if (Number(queryImageName(process, 0, path, size)) === 0) return null
+          return String.fromCharCode(...path.subarray(0, size[0]))
+        } finally {
+          closeHandle(process)
+        }
+      } catch (error) {
+        log(`[window-info] não foi possível achar o executável da janela: ${String(error)}`)
+        return null
+      }
+    }
+
     const restoreIfMinimized = async (hwnd: number): Promise<void> => {
       try {
         if (isIconic(hwnd) === 0) return
@@ -150,7 +189,7 @@ export async function loadWindowTools(log: (message: string) => void): Promise<W
       }
     }
 
-    return { traits, minimizedWindows, restoreIfMinimized }
+    return { traits, minimizedWindows, executablePath, restoreIfMinimized }
   } catch (error) {
     log(`[window-info] user32/dwmapi indisponíveis, filtros de janela desligados: ${String(error)}`)
     return NO_WINDOW_TOOLS

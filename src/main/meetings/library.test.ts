@@ -78,6 +78,7 @@ describe('loadMeetingDetail', () => {
       folderName: 'detalhe',
       hasVideoFile: true,
       hasAudioFile: true,
+      hasAudioInput: true,
       lock: null
     })
     expect(result.value.videoAspect).toBeCloseTo(16 / 9)
@@ -99,6 +100,14 @@ describe('loadMeetingDetail', () => {
       model: null,
       updatedAt: '2026-10-13T13:00:00.000Z'
     })
+  })
+
+  it('Reunião sem microfone nem áudio do sistema é marcada como sem entrada de áudio', async () => {
+    const folder = await create('mudo', { inputs: { mic: false, systemAudio: false } }, [
+      'audio.opus'
+    ])
+    const result = await loadMeetingDetail(root, folder, null)
+    expect(result.ok && result.value.hasAudioInput).toBe(false)
   })
 
   it('sem video.mp4 no disco (ou Reunião só de áudio) só há o Áudio da reunião', async () => {

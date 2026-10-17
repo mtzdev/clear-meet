@@ -1,3 +1,4 @@
+import { NO_AUDIO_NOTICE } from '@shared/audio-inputs'
 import { CircleCheck, FolderOpen, NotebookText, ScrollText, TriangleAlert } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { WarningNotice } from '@/components/record/notices'
@@ -125,7 +126,11 @@ export function FinishedPanel({ finished }: { finished: FinishedRecording }) {
         </p>
       </div>
 
-      {finished.status === 'ready' && (
+      {finished.status === 'ready' && !finished.hasAudioInput && (
+        <p className="text-muted-foreground text-sm">{NO_AUDIO_NOTICE}</p>
+      )}
+
+      {finished.status === 'ready' && finished.hasAudioInput && (
         <div className="border-border bg-card space-y-3 rounded-xl border p-4">
           <div className="flex items-start gap-3">
             <ScrollText className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden />

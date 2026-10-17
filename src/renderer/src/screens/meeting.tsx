@@ -1,4 +1,4 @@
-import { Info, LoaderCircle, NotebookText, TriangleAlert } from 'lucide-react'
+import { Info, LoaderCircle, MicOff, NotebookText, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 import { EmptyState } from '@/components/empty-state'
 import { Screen } from '@/components/layout/screen'
@@ -20,6 +20,7 @@ import { useMeetingId, useMeetingStart } from '@/lib/router'
 import { useSummaryView } from '@/lib/summary'
 import { useTranscriptView } from '@/lib/transcript'
 import { usePlayerShortcuts } from '@/lib/use-player-shortcuts'
+import { NO_AUDIO_NOTICE } from '@shared/audio-inputs'
 import type { MeetingDetail } from '@shared/library'
 import { mediaUrl } from '@shared/media'
 
@@ -183,40 +184,54 @@ function MeetingView({
     </div>
   )
 
+  const noAudio = <EmptyState icon={MicOff} title="Sem áudio" description={NO_AUDIO_NOTICE} />
+
   const panel = (
     <SidePanel
       noteCount={detail.notes.length}
       hasSummary={summary.status === 'running' || summary.status === 'ready'}
       hasTranscript={transcript.status === 'running' || transcript.status === 'ready'}
       summary={
-        <SummaryTab
-          folder={detail.folder}
-          meetingName={detail.name}
-          locked={locked}
-          hasAudioFile={detail.hasAudioFile}
-          view={summary}
-          transcript={transcript}
-          controller={controller}
-        />
+        detail.hasAudioInput ? (
+          <SummaryTab
+            folder={detail.folder}
+            meetingName={detail.name}
+            locked={locked}
+            hasAudioFile={detail.hasAudioFile}
+            view={summary}
+            transcript={transcript}
+            controller={controller}
+          />
+        ) : (
+          noAudio
+        )
       }
       ask={
-        <ChatTab
-          folder={detail.folder}
-          meetingId={detail.id}
-          durationMs={detail.durationMs}
-          locked={locked}
-          transcript={transcript}
-          controller={controller}
-        />
+        detail.hasAudioInput ? (
+          <ChatTab
+            folder={detail.folder}
+            meetingId={detail.id}
+            durationMs={detail.durationMs}
+            locked={locked}
+            transcript={transcript}
+            controller={controller}
+          />
+        ) : (
+          noAudio
+        )
       }
       transcript={
-        <TranscriptTab
-          folder={detail.folder}
-          locked={locked}
-          hasAudioFile={detail.hasAudioFile}
-          view={transcript}
-          controller={controller}
-        />
+        detail.hasAudioInput ? (
+          <TranscriptTab
+            folder={detail.folder}
+            locked={locked}
+            hasAudioFile={detail.hasAudioFile}
+            view={transcript}
+            controller={controller}
+          />
+        ) : (
+          noAudio
+        )
       }
       notes={
         <NotesTab

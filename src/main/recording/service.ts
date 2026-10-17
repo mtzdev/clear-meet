@@ -1,6 +1,6 @@
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { checkInputs, INPUTS_PROBLEM_TEXT } from '@shared/audio-inputs'
+import { checkInputs, hasAudioInput, INPUTS_PROBLEM_TEXT } from '@shared/audio-inputs'
 import { CAPTURE_FPS, isQualityPreset, resolveCanvasSize } from '@shared/capture'
 import {
   clockElapsedMs,
@@ -616,6 +616,7 @@ export class RecordingService {
       durationMs: meeting.durationMs ?? durationFromClock,
       status: meeting.status === 'ready' ? 'ready' : 'unprocessed',
       hasVideo: meeting.video !== null,
+      hasAudioInput: hasAudioInput(meeting.inputs),
       reason,
       issue: issues.length > 0 ? issues.join(' ') : null
     }

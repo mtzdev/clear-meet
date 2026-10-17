@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import {
+  app,
   type BrowserWindow,
   desktopCapturer,
   screen,
@@ -10,7 +11,8 @@ import {
 } from 'electron'
 import type { CaptureSourceInfo, CaptureSourceRef, ListSourcesRequest } from '@shared/recording'
 import { isBlankBitmap, judgeWindow, rejectByPreview } from './filter'
-import { NO_WINDOW_TOOLS, type WindowTraitsProbe } from './window-info'
+import { NO_WINDOW_TOOLS, type WindowTools } from './window-info'
+import { parseWindowHandle } from './window-state'
 
 const MIN_THUMBNAIL_WIDTH = 120
 const MAX_THUMBNAIL_WIDTH = 480
@@ -21,13 +23,26 @@ const THUMBNAILS_MIN_PERIOD_MS = 8_000
 /** ...ou depois de tantas vezes a duração da última captura, o que for maior. */
 const THUMBNAILS_DUTY_FACTOR = 2.5
 
+const RESOLVE_RETRIES = 4
+const RESOLVE_RETRY_MS = 250
+
 const NO_THUMBNAILS = { width: 0, height: 0 }
 
 /** `id: null` = Reunião só de áudio (sem fonte de vídeo). */
 type Pending = { id: string | null; systemAudio: boolean } | null
 
-const minimizedNow = (traits: ReturnType<WindowTraitsProbe>): boolean =>
+const minimizedNow = (traits: ReturnType<WindowTools['traits']>): boolean =>
   typeof traits === 'object' && traits !== null && traits.minimized
+
+/** Mesma fonte? Janelas casam pelo HWND (o sufixo do id varia). */
+function sameSource(a: string, b: string): boolean {
+  if (a === b) return true
+  const hwnd = parseWindowHandle(a)
+  return hwnd !== null && hwnd === parseWindowHandle(b)
+}
+
+const isAlive = (traits: ReturnType<WindowTools['traits']>): boolean =>
+  typeof traits === 'object' && traits !== null
 
 function clampWidth(width: number | undefined): number {
   if (typeof width !== 'number' || !Number.isFinite(width)) return DEFAULT_THUMBNAIL_WIDTH
@@ -53,6 +68,8 @@ interface Listed {
   name: string
   minimized: boolean
   entry: Captured | null
+  /** Ícone tirado do executável, para a janela minimizada que nunca teve miniatura capturada. */
+  fallbackIcon?: string | null
 }
 
 /**
@@ -64,6 +81,8 @@ export class CaptureSources {
   private readonly captured = new Map<string, Captured>()
   private nextThumbnailsAt = 0
   private lastThumbnailsMs = 0
+  private readonly exeIcons = new Map<string, string | null>()
+  private minimizedHandles = new Set<number | null>()
   private snapshot: { id: string; name: string }[] | null = null
   private refreshing: Promise<Listed[]> | null = null
 
@@ -74,7 +93,10 @@ export class CaptureSources {
   constructor(
     private readonly isRecorder: (contents: WebContents | null) => boolean,
     private readonly ownWindows: () => BrowserWindow[],
-    private readonly windowTraits: WindowTraitsProbe = NO_WINDOW_TOOLS.traits
+    private readonly windowTools: Pick<
+      WindowTools,
+      'traits' | 'minimizedWindows' | 'executablePath'
+    > = NO_WINDOW_TOOLS
   ) {}
 
   async list(request: Partial<ListSourcesRequest> = {}): Promise<CaptureSourceInfo[]> {
@@ -85,7 +107,7 @@ export class CaptureSources {
     })
     const listed = await this.refreshing
     const known = request.known ?? {}
-    return listed.map(({ id, kind, name, minimized, entry }): CaptureSourceInfo => {
+    return listed.map(({ id, kind, name, minimized, entry, fallbackIcon }): CaptureSourceInfo => {
       // Janela minimizada não é desenhada pelo Windows: a UI mostra o ícone do app no lugar.
       const key = minimized ? null : (entry?.key ?? null)
       const seen = known[id]
@@ -96,7 +118,7 @@ export class CaptureSources {
         minimized,
         thumbKey: key,
         thumbnail: key !== null && seen !== key ? (entry?.dataUrl ?? null) : null,
-        appIcon: seen === undefined ? (entry?.icon ?? null) : null
+        appIcon: seen === undefined ? (entry?.icon ?? fallbackIcon ?? null) : null
       }
     })
   }
@@ -105,7 +127,12 @@ export class CaptureSources {
     return new Set(
       this.ownWindows()
         .filter((window) => !window.isDestroyed())
-        .map((window) => window.getMediaSourceId())
+        .flatMap((window) => {
+          const id = window.getMediaSourceId()
+          const hwnd = parseWindowHandle(id)
+          // As janelas minimizadas são identificadas por nós como window:<HWND>:0.
+          return hwnd === null ? [id] : [id, `window:${hwnd}:0`]
+        })
     )
   }
 
@@ -113,7 +140,12 @@ export class CaptureSources {
     // Cada consulta ao desktopCapturer custa ~0,3 s de CPU mesmo sem imagens, então a lista só é
     // pedida de novo quando as miniaturas vencem. Nesse meio tempo, o estado de cada janela
     // (minimizada, fechada) vem direto do Windows, que é barato.
-    if (force || !this.snapshot || Date.now() >= this.nextThumbnailsAt) {
+    if (
+      force ||
+      !this.snapshot ||
+      Date.now() >= this.nextThumbnailsAt ||
+      this.restoredSinceSnapshot()
+    ) {
       this.snapshot = await this.captureThumbnails(width)
     }
     const ownIds = this.ownIds()
@@ -125,7 +157,7 @@ export class CaptureSources {
         listed.push({ id: source.id, kind, name: source.name, minimized: false, entry })
         continue
       }
-      const traits = this.windowTraits(source.id)
+      const traits = this.windowTools.traits(source.id)
       if (traits === 'gone') continue
       // A captura feita com a janela minimizada não vale depois de ela voltar.
       const stale = entry !== null && entry.minimizedAtCapture && traits?.minimized === false
@@ -137,9 +169,71 @@ export class CaptureSources {
         preview: stale ? null : (entry?.preview ?? null)
       })
       if (verdict.reject !== null) continue
-      listed.push({ id: source.id, kind, name: source.name, minimized: verdict.minimized, entry })
+      listed.push({
+        id: source.id,
+        kind,
+        name: source.name,
+        minimized: verdict.minimized,
+        entry,
+        fallbackIcon: verdict.minimized && !entry?.icon ? await this.exeIcon(source.id) : null
+      })
     }
+
+    // O desktopCapturer não lista janelas minimizadas: elas vêm direto do Windows.
+    const handles = new Set(this.snapshot.map((source) => parseWindowHandle(source.id)))
+    for (const { id, name } of this.windowTools.minimizedWindows()) {
+      if (handles.has(parseWindowHandle(id))) continue
+      const traits = this.windowTools.traits(id)
+      if (traits === 'gone') continue
+      const entry = this.capturedFor(id)
+      const verdict = judgeWindow({ id, name, ownIds, traits, preview: null })
+      if (verdict.reject !== null) continue
+      const fallbackIcon = entry?.icon ? null : await this.exeIcon(id)
+      listed.push({ id, kind: 'window', name, minimized: true, entry, fallbackIcon })
+    }
+    this.minimizedHandles = new Set(
+      listed.filter((item) => item.minimized).map((item) => parseWindowHandle(item.id))
+    )
     return listed
+  }
+
+  /** Ícone do executável da janela (cache por caminho); `null` cai no ícone genérico da UI. */
+  private async exeIcon(id: string): Promise<string | null> {
+    const path = this.windowTools.executablePath(id)
+    if (!path) return null
+    if (this.exeIcons.has(path)) return this.exeIcons.get(path) ?? null
+    let icon: string | null = null
+    try {
+      const image = await app.getFileIcon(path, { size: 'large' })
+      icon = image.isEmpty() ? null : image.toDataURL()
+    } catch {
+      // sem ícone: a UI usa o genérico
+    }
+    this.exeIcons.set(path, icon)
+    return icon
+  }
+
+  /** Janela que estava minimizada, voltou ao normal e ainda não está no snapshot: precisa de nova captura. */
+  private restoredSinceSnapshot(): boolean {
+    const known = new Set(this.snapshot?.map((source) => parseWindowHandle(source.id)))
+    for (const handle of this.minimizedHandles) {
+      if (handle === null || known.has(handle)) continue
+      const traits = this.windowTools.traits(`window:${handle}:0`)
+      if (typeof traits === 'object' && traits !== null && !traits.minimized) return true
+    }
+    return false
+  }
+
+  /** O cache é por id, mas o sufixo do id varia: cai para o HWND. */
+  private capturedFor(id: string): Captured | null {
+    const direct = this.captured.get(id)
+    if (direct) return direct
+    const handle = parseWindowHandle(id)
+    if (handle === null) return null
+    for (const [key, value] of this.captured) {
+      if (parseWindowHandle(key) === handle) return value
+    }
+    return null
   }
 
   /** Captura as miniaturas de tudo e atualiza o cache. */
@@ -151,7 +245,10 @@ export class CaptureSources {
       fetchWindowIcons: true
     })
     const present = new Set(sources.map((source) => source.id))
-    for (const id of this.captured.keys()) if (!present.has(id)) this.captured.delete(id)
+    for (const id of this.captured.keys()) {
+      // Janela minimizada some da lista do desktopCapturer, mas continua existindo: o ícone fica.
+      if (!present.has(id) && !isAlive(this.windowTools.traits(id))) this.captured.delete(id)
+    }
     for (const source of sources) {
       const previous = this.captured.get(source.id)
       const image = source.thumbnail
@@ -179,7 +276,7 @@ export class CaptureSources {
         previous?.icon ??
         (source.appIcon && !source.appIcon.isEmpty() ? source.appIcon.toDataURL() : null)
       this.captured.set(source.id, {
-        minimizedAtCapture: minimizedNow(this.windowTraits(source.id)),
+        minimizedAtCapture: minimizedNow(this.windowTools.traits(source.id)),
         preview,
         key: keep ? previous.key : usable ? key : null,
         dataUrl,
@@ -210,7 +307,12 @@ export class CaptureSources {
       types: [ref.kind],
       thumbnailSize: NO_THUMBNAILS
     })
-    if (!sources.some((source) => source.id === ref.id)) return false
+    if (
+      !sources.some((source) => sameSource(source.id, ref.id)) &&
+      !this.isMinimizedWindow(ref.id)
+    ) {
+      return false
+    }
     this.pending = { id: ref.id, systemAudio }
     return true
   }
@@ -235,12 +337,26 @@ export class CaptureSources {
     )
   }
 
+  private isMinimizedWindow(id: string): boolean {
+    const traits = this.windowTools.traits(id)
+    return typeof traits === 'object' && traits !== null && traits.minimized
+  }
+
   private async resolve(target: NonNullable<Pending>): Promise<DesktopCapturerSource | null> {
-    const sources = await desktopCapturer.getSources({
-      types: ['screen', 'window'],
-      thumbnailSize: NO_THUMBNAILS
-    })
-    if (target.id !== null) return sources.find((source) => source.id === target.id) ?? null
+    const targetId = target.id
+    const find = async (): Promise<DesktopCapturerSource[]> =>
+      desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: NO_THUMBNAILS })
+    let sources = await find()
+    if (targetId !== null) {
+      // Uma janela que acabou de ser restaurada leva um instante para voltar à lista.
+      for (let attempt = 0; attempt < RESOLVE_RETRIES; attempt++) {
+        const match = sources.find((source) => sameSource(source.id, targetId))
+        if (match) return match
+        await new Promise((resolve) => setTimeout(resolve, RESOLVE_RETRY_MS))
+        sources = await find()
+      }
+      return sources.find((source) => sameSource(source.id, targetId)) ?? null
+    }
     // Só áudio: o `getDisplayMedia` exige um vídeo para entregar o loopback; usa a tela
     // principal e a janela de gravação descarta a trilha de vídeo em seguida.
     const primary = String(screen.getPrimaryDisplay().id)

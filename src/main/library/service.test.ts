@@ -387,6 +387,7 @@ suite('atualização ao vivo', () => {
         durationMs: 1,
         status: 'ready',
         hasVideo: false,
+        hasAudioInput: true,
         reason: 'user',
         issue: null
       }

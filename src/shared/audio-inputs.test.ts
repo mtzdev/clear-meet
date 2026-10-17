@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkInputs, planDisplayRequest, type CaptureInputs } from './audio-inputs'
+import { checkInputs, hasAudioInput, planDisplayRequest, type CaptureInputs } from './audio-inputs'
 
 const inputs = (hasVideo: boolean, mic: boolean, systemAudio: boolean): CaptureInputs => ({
   hasVideo,
@@ -45,5 +45,14 @@ describe('planDisplayRequest', () => {
 
   it('só áudio sem áudio do sistema: não captura a tela (nem pede permissão)', () => {
     expect(planDisplayRequest(inputs(false, true, false))).toBeNull()
+  })
+})
+
+describe('hasAudioInput', () => {
+  it('só é falso sem microfone e sem áudio do sistema', () => {
+    expect(hasAudioInput({ mic: false, systemAudio: false })).toBe(false)
+    expect(hasAudioInput({ mic: true, systemAudio: false })).toBe(true)
+    expect(hasAudioInput({ mic: false, systemAudio: true })).toBe(true)
+    expect(hasAudioInput({ mic: true, systemAudio: true })).toBe(true)
   })
 })

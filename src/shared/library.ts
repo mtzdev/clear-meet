@@ -152,6 +152,8 @@ export interface MeetingDetail {
   hasVideoFile: boolean
   /** `audio.opus` existe na pasta. */
   hasAudioFile: boolean
+  /** A Reunião teve microfone ou áudio do sistema; sem nenhum, não há o que transcrever. */
+  hasAudioInput: boolean
   /** Proporção do Vídeo (largura / altura); `null` sem Vídeo. */
   videoAspect: number | null
   /** Ordenadas por Instante. */

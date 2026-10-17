@@ -93,6 +93,8 @@ export interface FinishedRecording {
   /** `ready`, ou `unprocessed` se o pós-processamento não pôde concluir (pedaços preservados). */
   status: 'ready' | 'unprocessed'
   hasVideo: boolean
+  /** Teve microfone ou áudio do sistema; sem nenhum, não há o que transcrever. */
+  hasAudioInput: boolean
   reason: StopReason
   /** Motivo de `unprocessed`, para exibir ao usuário. */
   issue: string | null

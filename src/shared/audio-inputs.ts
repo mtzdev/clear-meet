@@ -46,3 +46,10 @@ export function planDisplayRequest(inputs: CaptureInputs): DisplayRequest | null
   if (!inputs.hasVideo && !inputs.systemAudio) return null
   return { video: true, audio: inputs.systemAudio }
 }
+
+export const NO_AUDIO_NOTICE = 'Esta Reunião foi gravada sem áudio, então não há o que transcrever.'
+
+/** `false` quando a Reunião não teve microfone nem áudio do sistema: não há o que transcrever. */
+export function hasAudioInput(inputs: { mic: boolean; systemAudio: boolean }): boolean {
+  return inputs.mic || inputs.systemAudio
+}

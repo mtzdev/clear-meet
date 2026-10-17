@@ -1,5 +1,6 @@
 import { stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { hasAudioInput } from '@shared/audio-inputs'
 import { lockFor, type MeetingDetail } from '@shared/library'
 import { MEETING_FILES, type MeetingFile } from '@shared/meeting'
 import type { RecordingError, Result } from '@shared/recording'
@@ -70,6 +71,7 @@ export async function loadMeetingDetail(
       source: meeting.source,
       hasVideoFile,
       hasAudioFile,
+      hasAudioInput: hasAudioInput(meeting.inputs),
       videoAspect: videoAspect(meeting),
       notes: [...meeting.notes].sort((a, b) => a.offsetMs - b.offsetMs),
       issues: meeting.issues,

@@ -182,7 +182,7 @@ if (!app.requestSingleInstanceLock()) {
     const captureSources = new CaptureSources(
       (contents) => recorderFactory.isRecorder(contents),
       () => BrowserWindow.getAllWindows(),
-      windowTools.traits
+      windowTools
     )
     const thumbnailsDir = join(app.getPath('userData'), 'thumbnails')
     protocol.handle(
