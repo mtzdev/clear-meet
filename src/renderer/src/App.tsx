@@ -1,5 +1,7 @@
 import { useEffect, type ReactElement } from 'react'
 import { Sidebar } from '@/components/layout/sidebar'
+import { SetupGate } from '@/components/setup/setup-gate'
+import { UpdateBanner } from '@/components/layout/update-banner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useRecordingState } from '@/lib/recording'
 import { navigate, useRoute, type Route } from '@/lib/router'
@@ -27,12 +29,15 @@ export function App() {
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className="flex h-full">
-        <Sidebar route={route} />
-        <main className="min-w-0 flex-1">
-          <Screen />
-        </main>
-      </div>
+      <SetupGate>
+        <div className="flex h-full">
+          <Sidebar route={route} />
+          <main className="min-w-0 flex-1">
+            <Screen />
+          </main>
+        </div>
+      </SetupGate>
+      <UpdateBanner />
     </TooltipProvider>
   )
 }

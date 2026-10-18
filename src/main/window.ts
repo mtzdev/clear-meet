@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { BrowserWindow, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, nativeTheme, shell } from 'electron'
 import { WINDOW_BACKGROUND } from '@shared/theme'
 
 function backgroundForTheme(): string {
@@ -16,6 +16,8 @@ export function createMainWindow(): BrowserWindow {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: backgroundForTheme(),
+    // Instalado, o ícone vem do executável; em desenvolvimento, do arquivo em `build/`.
+    ...(app.isPackaged ? {} : { icon: join(app.getAppPath(), 'build', 'icon.png') }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

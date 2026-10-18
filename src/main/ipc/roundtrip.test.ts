@@ -33,6 +33,8 @@ const settingsView: SettingsView = {
   transcriptionModel: 'gemini-3.5-flash-lite',
   groqTextModel: 'openai/gpt-oss-120b',
   geminiTextModel: 'gemini-3.5-flash-lite',
+  theme: 'system',
+  setupCompleted: false,
   resolvedMeetingsDir: 'C:\\Users\\x\\Documents\\ClearMeet'
 }
 
@@ -47,6 +49,8 @@ function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
   return {
     getAppVersion: () => '1.2.3',
     getFfmpegStatus: () => Promise.resolve(status),
+    installFfmpeg: () => ({ phase: 'idle', receivedBytes: 0, totalBytes: null, error: null }),
+    relocationBlock: () => null,
     listSources: () => Promise.resolve([]),
     preflight: () =>
       Promise.resolve({ meetingsDir: 'C:\\m', freeBytes: 10, disk: 'ok', ffmpegAvailable: true }),
@@ -114,7 +118,22 @@ function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
       testKey: () => Promise.resolve({ ok: true })
     },
     openExternal: () => Promise.resolve(),
-    settings: { view: () => settingsView, update: () => Promise.resolve(settingsView) },
+    settings: {
+      view: () => settingsView,
+      update: () => Promise.resolve(settingsView),
+      setNoteShortcut: () => Promise.resolve({ ok: true, value: settingsView })
+    },
+    meetingsDir: {
+      choose: () => Promise.resolve({ ok: true, value: null }),
+      apply: () =>
+        Promise.resolve({ ok: false, error: { code: 'invalid-request', message: 'sem escolha' } }),
+      cancel: () => undefined,
+      open: () => Promise.resolve()
+    },
+    update: {
+      getState: () => ({ phase: 'unavailable', version: null, percent: null }),
+      restart: () => ({ ok: false, error: { code: 'not-found', message: 'sem atualização' } })
+    },
     recovery: {
       getReport: () => ({ checkedAt: null, running: false, items: [] }),
       retry: () => Promise.resolve({ checkedAt: 1, running: false, items: [] })
@@ -259,6 +278,8 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
       })
     ).toEqual({ entries: [], total: 3, indexed: 3, skipped: 2, updating: false })
     expect(await api.invoke('library:refresh')).toBeNull()
+    expect(await api.invoke('update:getState')).toMatchObject({ phase: 'unavailable' })
+    expect(await api.invoke('update:restart')).toMatchObject({ ok: false })
     expect(await api.invoke('meeting:get', { id: 'abc' })).toEqual({
       ok: false,
       error: { code: 'not-found', message: 'sem abc' }
@@ -304,15 +325,18 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
     expect(Object.keys(IPC_EVENTS).sort()).toEqual([
       'chat:event',
       'compaction:changed',
+      'ffmpeg:install',
       'floating:info',
       'library:changed',
+      'meetingsDir:progress',
       'notes:opened',
       'notes:saved',
       'recording:level',
       'recording:state',
       'recovery:report',
       'summary:changed',
-      'transcript:changed'
+      'transcript:changed',
+      'update:changed'
     ])
   })
 
@@ -419,5 +443,37 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
     })
     emit('chat:event', { type: 'delta', meetingId: 'm', messageId: 'a1', text: 'oi' })
     expect(received).toEqual(['running', 'delta'])
+  })
+  it('enquanto a pasta das Reuniões é trocada, os canais que mexem nas pastas respondem "busy"', async () => {
+    const started: string[] = []
+    const { api } = createWiredApi(
+      fakeDeps({
+        relocationBlock: () => 'Trocando a pasta.',
+        recording: {
+          ...fakeDeps().recording,
+          start: () => {
+            started.push('start')
+            return Promise.resolve(ok)
+          }
+        }
+      })
+    )
+    const blocked = { ok: false, error: { code: 'busy', message: 'Trocando a pasta.' } }
+    expect(
+      await api.invoke('recording:start', {
+        source: { kind: 'none' },
+        mic: null,
+        systemAudio: false,
+        quality: '1080p'
+      })
+    ).toEqual(blocked)
+    expect(await api.invoke('meeting:delete', { folder: 'F' })).toEqual(blocked)
+    expect(await api.invoke('transcript:start', { folder: 'F', requestSummary: false })).toEqual(
+      blocked
+    )
+    expect(started).toEqual([])
+    // Consultas e a própria troca de pasta continuam disponíveis.
+    expect(await api.invoke('meetingsDir:cancel')).toBeNull()
+    expect(await api.invoke('app:getVersion')).toBe('1.2.3')
   })
 })

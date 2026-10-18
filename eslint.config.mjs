@@ -9,6 +9,7 @@ export default tseslint.config(
     ignores: [
       'out/**',
       'dist/**',
+      'release/**',
       'build/**',
       'coverage/**',
       'vendor/**',

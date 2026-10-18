@@ -113,6 +113,7 @@ export class LibraryService {
   private reconcileAgain = false
   private lastReconcileAt = 0
   private updating = false
+  private paused = false
   private lastPhase: RecordingState['phase'] | null = null
   private readonly aiStatus = new Map<string, string>()
   private readonly thumbnails: ThumbnailQueue
@@ -121,7 +122,7 @@ export class LibraryService {
     this.thumbnails = new ThumbnailQueue({
       dir: deps.thumbnailsDir,
       getTools: () => deps.getTools(),
-      canRun: () => deps.canMakeThumbnails(),
+      canRun: () => deps.canMakeThumbnails() && !this.paused,
       ...(deps.run ? { run: deps.run } : {}),
       log: (message) => deps.log(message),
       onDone: (job, outcome) => {
@@ -155,6 +156,23 @@ export class LibraryService {
 
   /** Abre o índice e o atualiza em segundo plano. */
   start(): void {
+    void this.reconcile({ force: true })
+  }
+
+  /**
+   * Suspende varreduras, atualizações e miniaturas e espera a que estiver em curso largar os
+   * arquivos (para as pastas poderem ser movidas). `resume()` retoma e relê tudo.
+   */
+  async pause(): Promise<void> {
+    this.paused = true
+    await this.reconciling
+    await this.chain
+    await this.thumbnails.idle()
+  }
+
+  resume(): void {
+    this.paused = false
+    this.thumbnails.kick()
     void this.reconcile({ force: true })
   }
 
@@ -269,6 +287,7 @@ export class LibraryService {
 
   /** Reconcilia o índice com as pastas. Chamadas simultâneas se juntam; `force` ignora o intervalo mínimo. */
   reconcile(options: { force?: boolean } = {}): Promise<void> {
+    if (this.paused) return Promise.resolve()
     if (this.reconciling) {
       this.reconcileAgain = true
       return this.reconciling
@@ -426,6 +445,7 @@ export class LibraryService {
 
   /** Atualiza uma Reunião (Anotação, nome, Falante, Resumo...). Ignora pastas fora da pasta das Reuniões. */
   async refresh(folder: string): Promise<void> {
+    if (this.paused) return
     const root = this.deps.meetingsDir()
     if (!isDirectChild(root, folder)) return
     const db = await this.open()

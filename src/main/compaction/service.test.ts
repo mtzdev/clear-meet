@@ -391,6 +391,41 @@ describe('CompactionService', () => {
       expect(service.isIdle).toBe(false)
     })
 
+    it('pause() larga os arquivos: para a Compactação em curso, que volta para a fila', async () => {
+      const folder = await createMeeting('a')
+      const { service, state, whenStarted } = setup({ hang: true })
+      await service.enqueueFolder(folder)
+      await whenStarted
+
+      state.canRun = false
+      await service.pause()
+
+      expect(service.isActive(folder)).toBe(false)
+      expect(await readdir(folder)).not.toContain('video.compacting.mp4')
+      expect(await metaOf(folder)).toMatchObject({ status: 'pending' })
+      expect(service.isIdle).toBe(false)
+    })
+
+    it('pause() desiste da troca que esperava um arquivo em uso e apaga o temporário', async () => {
+      const folder = await createMeeting('a')
+      const { service, state } = setup({
+        rename: () => Promise.reject(Object.assign(new Error('em uso'), { code: 'EBUSY' })),
+        replaceRetryMs: 60_000
+      })
+      await service.enqueueFolder(folder)
+      await service.idle()
+      expect(service.isActive(folder)).toBe(true)
+      expect(await readdir(folder)).toContain('video.compacting.mp4')
+
+      state.canRun = false
+      await service.pause()
+
+      expect(service.isActive(folder)).toBe(false)
+      expect(await readdir(folder)).not.toContain('video.compacting.mp4')
+      expect(await size(join(folder, 'video.mp4'))).toBe(ORIGINAL_BYTES)
+      expect(await metaOf(folder)).toMatchObject({ status: 'pending' })
+    })
+
     it('desligar a Compactação para a em curso e esvazia a fila; ligar enfileira as pendentes', async () => {
       const folder = await createMeeting('a')
       const { service, state, whenStarted } = setup({ hang: true })

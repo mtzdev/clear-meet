@@ -1,7 +1,7 @@
 {
   "name": "clearmeet",
   "productName": "ClearMeet",
-  "version": "0.1.0",
+  "version": "0.9.1",
   "private": true,
   "description": "Grava reuniões e gera Transcrição, Resumo e Perguntas via IA.",
   "author": "Matheus",
@@ -20,9 +20,13 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "fetch:ffmpeg": "tsx scripts/fetch-ffmpeg.ts"
+    "fetch:ffmpeg": "tsx scripts/fetch-ffmpeg.ts",
+    "make:icon": "tsx scripts/make-icon.ts",
+    "pack": "npm run build && electron-builder --win --dir --publish never",
+    "dist": "npm run build && electron-builder --win --publish never"
   },
   "dependencies": {
+    "electron-updater": "6.8.9",
     "koffi": "^3.3.3",
     "yauzl": "^3.4.0"
   },
@@ -37,6 +41,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron": "44.7.0",
+    "electron-builder": "26.15.3",
     "electron-vite": "^5.0.0",
     "eslint": "^10.12.0",
     "eslint-plugin-react-hooks": "^7.1.1",

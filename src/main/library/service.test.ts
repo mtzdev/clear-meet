@@ -639,6 +639,26 @@ suite('miniaturas', () => {
     expect(thumbCalls).toHaveLength(2)
   })
 
+  it('pausado, não varre nem gera miniaturas; ao retomar, relê a pasta', async () => {
+    await createFolder(root, 'a', spec('a', 'A', 1, { files: { 'video.mp4': 'v' } }))
+    const { service, thumbCalls } = createService()
+    await sync(service)
+    expect(thumbCalls).toHaveLength(1)
+
+    await service.pause()
+    await createFolder(root, 'b', spec('b', 'B', 2, { files: { 'video.mp4': 'v' } }))
+    await service.reconcile({ force: true })
+    await service.refresh(join(root, 'b'))
+    await service.settled()
+    expect(await names(service)).toEqual(['A'])
+    expect(thumbCalls).toHaveLength(1)
+
+    service.resume()
+    await service.settled()
+    expect(await names(service)).toEqual(['B', 'A'])
+    expect(thumbCalls).toHaveLength(2)
+  })
+
   it('não gera enquanto há gravação e retoma depois', async () => {
     await createFolder(root, 'a', spec('a', 'A', 1, { files: { 'video.mp4': 'v' } }))
     const recording = { value: true }
