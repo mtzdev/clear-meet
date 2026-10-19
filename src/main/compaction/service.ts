@@ -213,6 +213,23 @@ export class CompactionService {
     this.running?.controller.abort()
   }
 
+  /**
+   * Larga os arquivos das Reuniões: para a Compactação em curso (a Reunião volta para a fila) e
+   * desiste das trocas que esperam um arquivo em uso. Quem pausa faz `canRun()` devolver falso e
+   * chama `kick()` ao terminar.
+   */
+  async pause(): Promise<void> {
+    this.running?.controller.abort()
+    for (const [id, wait] of [...this.waiting]) {
+      if (wait.timer) clearTimeout(wait.timer)
+      this.waiting.delete(id)
+      await rm(wait.temp, { force: true }).catch(() => undefined)
+      await this.setMeta(wait.folder, wait.job.id, { status: 'pending' }, false)
+      this.queue.set(id, { ...wait.job, force: false })
+    }
+    await this.idle()
+  }
+
   /** Fim do app: para o FFmpeg e desiste de trocas pendentes (o temporário some na próxima abertura). */
   abortAll(): void {
     this.queue.clear()

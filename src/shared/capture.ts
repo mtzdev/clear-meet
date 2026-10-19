@@ -13,7 +13,7 @@ export function isQualityPreset(value: unknown): value is QualityPreset {
   return typeof value === 'string' && (QUALITY_PRESETS as readonly string[]).includes(value)
 }
 
-/** Teto de quadros por segundo do Vídeo (ADR 0003). */
+/** Teto de quadros por segundo do Vídeo. */
 export const CAPTURE_FPS = 15
 
 /** Opus mono do Áudio da reunião (~32 kbps; o mp4 do Chromium ignora e grava ~96 kbps). */
@@ -93,7 +93,7 @@ export function computeFit(source: Size, canvas: Size): Fit {
   }
 }
 
-/** Bitrate de referência em 1080p (bits/s), por modo de Compactação (ADR 0003). */
+/** Bitrate de referência em 1080p (bits/s), por modo de Compactação. */
 const BITRATE_1080P = { compaction: 4_000_000, plain: 2_000_000 } as const
 const BITRATE_720P = { compaction: 2_000_000, plain: 1_000_000 } as const
 const BITRATE_MAX = 12_000_000

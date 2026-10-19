@@ -90,6 +90,12 @@ export class SettingsStore {
     return this.view()
   }
 
+  /** Define a pasta das Reuniões (só pelo fluxo de troca de pasta, nunca pelo patch genérico). */
+  async setMeetingsDir(dir: string): Promise<void> {
+    this.current = { ...this.current, meetingsDir: dir }
+    await this.persist()
+  }
+
   /** Lembra onde a barra flutuante foi deixada (uso interno do main, não vem da UI). */
   async setBarPosition(position: Point): Promise<void> {
     this.current = {

@@ -1,5 +1,5 @@
 /**
- * Barra flutuante e campo de Anotação (Fase 3): tipos trocados com a UI e a geometria das
+ * Barra flutuante e campo de Anotação: tipos trocados com a UI e a geometria das
  * janelas (posição padrão, posição lembrada que ainda precisa caber num monitor, posição do
  * campo de Anotação). Tudo puro, em pixels independentes de densidade (DIP).
  */

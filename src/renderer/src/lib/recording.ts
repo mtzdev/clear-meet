@@ -209,8 +209,13 @@ export function useRecoveryReport(): { report: RecoveryReport; retry: () => void
 export function useSettings(): {
   settings: SettingsView | null
   update: (patch: SettingsPatch) => void
+  /** Troca a visão local (depois de um canal próprio que já devolve as configurações). */
+  replace: (view: SettingsView) => void
+  /** Lê as configurações de novo (ex.: depois de trocar a pasta das Reuniões). */
+  reload: () => void
 } {
   const [settings, setSettings] = useState<SettingsView | null>(null)
+  const [version, setVersion] = useState(0)
   useEffect(() => {
     let cancelled = false
     void window.api.invoke('settings:get').then((view) => {
@@ -219,11 +224,12 @@ export function useSettings(): {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [version])
   const update = useCallback((patch: SettingsPatch) => {
     // Atualiza na hora; o main confirma com a visão gravada.
     setSettings((current) => (current ? { ...current, ...patch } : current))
     void window.api.invoke('settings:update', patch).then(setSettings)
   }, [])
-  return { settings, update }
+  const reload = useCallback(() => setVersion((current) => current + 1), [])
+  return { settings, update, replace: setSettings, reload }
 }

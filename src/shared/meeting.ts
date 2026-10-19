@@ -4,8 +4,8 @@ import { parseSummaryMeta, type SummaryMeta } from './summary'
 import { parseTranscriptMeta, type TranscriptMeta } from './transcript'
 
 /**
- * `meeting.json`: o registro de uma Reunião dentro da sua pasta (ADR 0005 — a pasta é a
- * fonte da verdade). Versionado por `schemaVersion`; validado sempre que lido.
+ * `meeting.json`: o registro de uma Reunião dentro da sua pasta (a pasta é a fonte da
+ * verdade). Versionado por `schemaVersion`; validado sempre que lido.
  */
 export const MEETING_SCHEMA_VERSION = 1
 export const MEETING_FILE = 'meeting.json'
@@ -40,7 +40,7 @@ export const CAPTURE_SOURCE_KINDS = ['screen', 'window', 'none'] as const
 /** Tipo da Fonte de captura: tela, janela ou nenhuma (Reunião só de áudio). */
 export type CaptureSourceKind = (typeof CAPTURE_SOURCE_KINDS)[number]
 
-/** Anotação (Note): texto do usuário preso a um Instante. Preenchida a partir da Fase 3. */
+/** Anotação (Note): texto do usuário preso a um Instante. */
 export interface MeetingNote {
   id: string
   /** Instante em ms, contado sem os períodos pausados. */

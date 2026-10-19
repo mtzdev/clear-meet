@@ -1,9 +1,9 @@
 import type { AiProvider, AiStatus, KeyTestResult } from '@shared/ai'
 import type { ChatSent, ChatState } from '@shared/chat'
 import type { CleanupPreview, CleanupRequest, CleanupResult } from '@shared/cleanup'
-import type { FfmpegStatus } from '@shared/ffmpeg'
+import type { FfmpegInstallState, FfmpegStatus } from '@shared/ffmpeg'
 import type { FloatingInfo } from '@shared/floating'
-import type { IpcHandlers } from '@shared/ipc'
+import type { IpcChannel, IpcHandlers } from '@shared/ipc'
 import type { LibraryQuery, LibraryResult, MeetingDetail } from '@shared/library'
 import type { MeetingNote } from '@shared/meeting'
 import type {
@@ -17,14 +17,19 @@ import type {
   Result,
   StartRecordingRequest
 } from '@shared/recording'
+import type { MeetingsDirChoice, RelocationRequest, RelocationSummary } from '@shared/relocation'
 import type { SettingsPatch, SettingsView } from '@shared/settings'
 import type { SummaryFile } from '@shared/summary'
 import type { TranscriptFile } from '@shared/transcript'
+import type { UpdateState } from '@shared/update'
 
 /** Dependências dos handlers; no app vêm do Electron e dos serviços do main. */
 export interface HandlerDeps {
   getAppVersion(): string
   getFfmpegStatus(): Promise<FfmpegStatus>
+  installFfmpeg(): FfmpegInstallState
+  /** Texto para o usuário enquanto a pasta das Reuniões está sendo trocada (nada deve mexer nas pastas); `null` fora disso. */
+  relocationBlock(): string | null
   listSources(request: ListSourcesRequest): Promise<CaptureSourceInfo[]>
   preflight(): Promise<PreflightInfo>
   recording: {
@@ -82,6 +87,17 @@ export interface HandlerDeps {
   settings: {
     view(): SettingsView
     update(patch: SettingsPatch): Promise<SettingsView>
+    setNoteShortcut(accelerator: string): Promise<Result<SettingsView>>
+  }
+  meetingsDir: {
+    choose(): Promise<Result<MeetingsDirChoice | null>>
+    apply(request: RelocationRequest): Promise<Result<RelocationSummary>>
+    cancel(): void
+    open(which: 'current' | 'previous'): Promise<void>
+  }
+  update: {
+    getState(): UpdateState
+    restart(): Result<null>
   }
   recovery: {
     getReport(): RecoveryReport
@@ -99,10 +115,41 @@ export interface HandlerDeps {
   }
 }
 
+/** Canais que mexem nas pastas das Reuniões: recusados enquanto a pasta das Reuniões é trocada. */
+const FOLDER_CHANNELS = [
+  'recording:start',
+  'meeting:rename',
+  'meeting:delete',
+  'meeting:deleteVideo',
+  'meeting:addNote',
+  'meeting:updateNote',
+  'meeting:deleteNote',
+  'compaction:retry',
+  'cleanup:run',
+  'transcript:start',
+  'transcript:renameSpeaker',
+  'summary:start',
+  'chat:send',
+  'chat:clear'
+] as const satisfies readonly IpcChannel[]
+
+function blockDuringRelocation(deps: HandlerDeps, handlers: IpcHandlers): IpcHandlers {
+  const guarded = { ...handlers } as unknown as Record<string, (request: unknown) => unknown>
+  for (const channel of FOLDER_CHANNELS) {
+    const inner = guarded[channel] as (request: unknown) => unknown
+    guarded[channel] = (request) => {
+      const message = deps.relocationBlock()
+      return message ? { ok: false, error: { code: 'busy', message } } : inner(request)
+    }
+  }
+  return guarded as unknown as IpcHandlers
+}
+
 export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
-  return {
+  return blockDuringRelocation(deps, {
     'app:getVersion': () => deps.getAppVersion(),
     'ffmpeg:status': () => deps.getFfmpegStatus(),
+    'ffmpeg:install': () => deps.installFfmpeg(),
     'capture:listSources': (request) => deps.listSources(request),
     'recording:preflight': () => deps.preflight(),
     'recording:getState': () => deps.recording.getState(),
@@ -168,6 +215,19 @@ export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
     },
     'settings:get': () => deps.settings.view(),
     'settings:update': (patch) => deps.settings.update(patch),
+    'settings:setNoteShortcut': (request) => deps.settings.setNoteShortcut(request.accelerator),
+    'meetingsDir:choose': () => deps.meetingsDir.choose(),
+    'meetingsDir:apply': (request) => deps.meetingsDir.apply(request),
+    'meetingsDir:cancel': () => {
+      deps.meetingsDir.cancel()
+      return null
+    },
+    'meetingsDir:open': async (request) => {
+      await deps.meetingsDir.open(request.which)
+      return null
+    },
+    'update:getState': () => deps.update.getState(),
+    'update:restart': () => deps.update.restart(),
     'recovery:getReport': () => deps.recovery.getReport(),
     'recovery:retry': () => deps.recovery.retry(),
     'floating:getInfo': () => deps.floating.getInfo(),
@@ -192,5 +252,5 @@ export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
       deps.floating.cancelNote()
       return null
     }
-  }
+  })
 }

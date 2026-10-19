@@ -17,3 +17,33 @@ export interface FfmpegStatus {
   /** Motivo, quando `available` é falso (binário ausente ou inválido). */
   error: string | null
 }
+
+export type FfmpegInstallPhase =
+  'idle' | 'download' | 'verify' | 'extract' | 'validate' | 'done' | 'error'
+
+/** Andamento da instalação do FFmpeg (download, verificação, extração). */
+export interface FfmpegInstallState {
+  phase: FfmpegInstallPhase
+  receivedBytes: number
+  /** `null` quando o servidor não informa o tamanho. */
+  totalBytes: number | null
+  /** Mensagem para o usuário, quando `phase` é `error`. */
+  error: string | null
+}
+
+export const IDLE_FFMPEG_INSTALL: FfmpegInstallState = {
+  phase: 'idle',
+  receivedBytes: 0,
+  totalBytes: null,
+  error: null
+}
+
+/** Instalação em curso (baixando ou preparando os arquivos). */
+export function isFfmpegInstalling(state: FfmpegInstallState): boolean {
+  return (
+    state.phase === 'download' ||
+    state.phase === 'verify' ||
+    state.phase === 'extract' ||
+    state.phase === 'validate'
+  )
+}

@@ -437,7 +437,7 @@ function takeSample(): MetricSample {
 
 /**
  * Mede a CPU por processo (tempo de CPU acumulado / tempo decorrido, 100% = 1 núcleo lógico),
- * ignorando os primeiros 10 s (aquecimento do codificador). Mesmo método do spike da Fase 0.
+ * ignorando os primeiros 10 s (aquecimento do codificador).
  * `target` é o processo da janela sintética (a carga de trabalho, que não é custo do app).
  */
 function startMetrics(

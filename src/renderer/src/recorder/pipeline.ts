@@ -16,7 +16,7 @@ export interface VideoPipeline {
 }
 
 /**
- * Pipeline de vídeo (ADR 0002): a captura nunca vai direto ao gravador, porque redimensionar
+ * Pipeline de vídeo: a captura nunca vai direto ao gravador, porque redimensionar
  * a janela gravada corrompe o MP4. Cada quadro da fonte é lido por `MediaStreamTrackProcessor`,
  * desenhado num canvas de tamanho fixo — encaixado com letterbox, sem ampliar — e emitido por
  * `captureStream(0)` + `requestFrame()`: um quadro de saída por quadro de entrada, sem

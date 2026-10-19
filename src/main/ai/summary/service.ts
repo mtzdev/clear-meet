@@ -63,6 +63,10 @@ export class SummaryService {
     return this.job !== null && sameFolder(this.job.folder, folder)
   }
 
+  hasActive(): boolean {
+    return this.job !== null
+  }
+
   cancel(folder: string): void {
     if (this.job && sameFolder(this.job.folder, folder)) this.job.controller.abort()
   }

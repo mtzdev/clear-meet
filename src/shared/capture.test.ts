@@ -128,7 +128,7 @@ describe('videoBitrate', () => {
   const hd = { width: 1920, height: 1080 }
   const sd = { width: 1280, height: 720 }
 
-  it('Compactação ligada grava com folga (ADR 0003)', () => {
+  it('Compactação ligada grava com folga', () => {
     expect(videoBitrate('1080p', hd, true)).toBe(4_000_000)
     expect(videoBitrate('720p', sd, true)).toBe(2_000_000)
   })

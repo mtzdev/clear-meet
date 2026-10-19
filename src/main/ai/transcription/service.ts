@@ -105,6 +105,10 @@ export class TranscriptionService {
     return this.job !== null && sameFolder(this.job.folder, folder)
   }
 
+  hasActive(): boolean {
+    return this.job !== null
+  }
+
   progressFor(folder: string): TranscriptProgress | null {
     return this.job && sameFolder(this.job.folder, folder) ? { ...this.job.progress } : null
   }

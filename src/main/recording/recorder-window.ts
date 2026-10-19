@@ -29,7 +29,7 @@ function isChunkKind(value: unknown): value is RecorderChunkKind {
 
 /**
  * Janela de gravação: um `BrowserWindow` oculto (nunca mostrado) onde roda a captura. Fica
- * fora da UI para que ela possa recarregar ou sumir (Fase 3) sem afetar a gravação.
+ * fora da UI para que ela possa recarregar ou sumir sem afetar a gravação.
  * `backgroundThrottling: false` mantém timers e promessas rodando com a janela oculta.
  *
  * `installRecorderIpc` registra os canais uma vez; cada gravação cria uma janela nova

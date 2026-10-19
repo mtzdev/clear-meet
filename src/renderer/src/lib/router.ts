@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 
-/** Áreas do app. "meeting" é o detalhe de uma Reunião (Fase 4). */
+/** Áreas do app. "meeting" é o detalhe de uma Reunião. */
 export const ROUTES = ['record', 'meetings', 'meeting', 'settings'] as const
 export type Route = (typeof ROUTES)[number]
 

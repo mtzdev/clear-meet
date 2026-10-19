@@ -37,6 +37,7 @@ describe('contrato de IPC', () => {
       'cleanup:preview',
       'cleanup:run',
       'compaction:retry',
+      'ffmpeg:install',
       'ffmpeg:status',
       'floating:getInfo',
       'floating:resize',
@@ -52,6 +53,10 @@ describe('contrato de IPC', () => {
       'meeting:rename',
       'meeting:reveal',
       'meeting:updateNote',
+      'meetingsDir:apply',
+      'meetingsDir:cancel',
+      'meetingsDir:choose',
+      'meetingsDir:open',
       'notes:begin',
       'notes:cancel',
       'notes:openEditor',
@@ -66,6 +71,7 @@ describe('contrato de IPC', () => {
       'recovery:getReport',
       'recovery:retry',
       'settings:get',
+      'settings:setNoteShortcut',
       'settings:update',
       'summary:cancel',
       'summary:get',
@@ -73,7 +79,9 @@ describe('contrato de IPC', () => {
       'transcript:cancel',
       'transcript:get',
       'transcript:renameSpeaker',
-      'transcript:start'
+      'transcript:start',
+      'update:getState',
+      'update:restart'
     ])
   })
 
@@ -96,15 +104,18 @@ describe('contrato de IPC', () => {
     expect(Object.keys(IPC_EVENTS).sort()).toEqual([
       'chat:event',
       'compaction:changed',
+      'ffmpeg:install',
       'floating:info',
       'library:changed',
+      'meetingsDir:progress',
       'notes:opened',
       'notes:saved',
       'recording:level',
       'recording:state',
       'recovery:report',
       'summary:changed',
-      'transcript:changed'
+      'transcript:changed',
+      'update:changed'
     ])
   })
 

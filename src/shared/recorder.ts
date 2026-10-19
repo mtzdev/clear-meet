@@ -15,7 +15,7 @@ export interface RecorderStartParams {
   /** Captura o áudio do sistema (loopback) junto com a tela; `false` = só o microfone. */
   systemAudio: boolean
   preset: QualityPreset
-  /** Compactação ligada define o bitrate ao vivo (ADR 0003). */
+  /** Compactação ligada define o bitrate ao vivo. */
   compaction: boolean
 }
 

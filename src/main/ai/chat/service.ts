@@ -64,6 +64,10 @@ export class ChatService {
     return this.find(folder) !== undefined
   }
 
+  hasActive(): boolean {
+    return this.active.size > 0
+  }
+
   async get(folder: string): Promise<Result<ChatState>> {
     if (!isDirectChild(this.deps.meetingsDir(), folder)) {
       return fail('invalid-request', 'A pasta não está dentro da pasta das Reuniões.')

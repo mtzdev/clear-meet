@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Conferir que a tag bate com a versão do package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "A tag $GITHUB_REF_NAME não bate com a versão $version do package.json." >&2
+            exit 1
+          fi
+
+      - name: Cache do FFmpeg
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: vendor/ffmpeg
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('src/main/ffmpeg/config.ts') }}
+
+      - if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: npm run fetch:ffmpeg
+
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+      # Gera o instalador e o latest.yml (lido pela atualização automática) e os publica como
+      # rascunho no GitHub Releases; a publicação é manual.
+      - name: Gerar o instalador e publicar o rascunho
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

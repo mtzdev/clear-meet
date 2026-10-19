@@ -3,7 +3,7 @@ import type { MeetingNote } from './meeting'
 import { formatInstant } from './timeline'
 
 /**
- * Anotações ao vivo (Fase 3). Lógica pura: o main escolhe o Instante e valida o texto; a
+ * Anotações ao vivo. Lógica pura: o main escolhe o Instante e valida o texto; a
  * UI da barra e do campo de Anotação só exibem.
  */
 

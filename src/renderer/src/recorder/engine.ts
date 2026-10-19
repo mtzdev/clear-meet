@@ -263,7 +263,7 @@ export class RecorderEngine {
 
     // 5) Gravadores.
     const videoBits = videoBitrate(params.preset, canvas, params.compaction)
-    // O de vídeo é construído e iniciado primeiro, como no spike da Fase 0.
+    // O de vídeo é construído e iniciado primeiro (ver abaixo).
     const videoRecorder =
       video && videoMime
         ? new ChunkedRecorder(
@@ -322,8 +322,8 @@ export class RecorderEngine {
       watchdog
     }
 
-    // Os dois gravadores partem juntos, o de vídeo primeiro (como no spike: com o de áudio
-    // primeiro, o codificador de vídeo travava com frequência); o Instante zero é o `onstart`
+    // Os dois gravadores partem juntos, o de vídeo primeiro (com o de áudio primeiro, o
+    // codificador de vídeo travava com frequência); o Instante zero é o `onstart`
     // do de áudio.
     await Promise.all([videoRecorder?.start(), audioRecorder.start()])
 

@@ -2,7 +2,7 @@ import type { AiProvider, AiStatus, KeyTestResult } from './ai'
 import type { ChatEvent, ChatSent, ChatState } from './chat'
 import type { CleanupPreview, CleanupRequest, CleanupResult } from './cleanup'
 import type { CompactionChangedEvent } from './compaction'
-import type { FfmpegStatus } from './ffmpeg'
+import type { FfmpegInstallState, FfmpegStatus } from './ffmpeg'
 import type { FloatingInfo, NoteSavedEvent } from './floating'
 import type { LibraryQuery, LibraryResult, MeetingDetail } from './library'
 import type { MeetingNote } from './meeting'
@@ -18,9 +18,16 @@ import type {
   Result,
   StartRecordingRequest
 } from './recording'
+import type {
+  MeetingsDirChoice,
+  RelocationProgress,
+  RelocationRequest,
+  RelocationSummary
+} from './relocation'
 import type { SettingsPatch, SettingsView } from './settings'
 import type { SummaryChangedEvent, SummaryFile } from './summary'
 import type { TranscriptChangedEvent, TranscriptFile } from './transcript'
+import type { UpdateState } from './update'
 
 /**
  * Contrato único de IPC (renderer -> main). Cada canal declara o tipo do
@@ -31,6 +38,8 @@ import type { TranscriptChangedEvent, TranscriptFile } from './transcript'
 export interface IpcContract {
   'app:getVersion': { request: void; response: string }
   'ffmpeg:status': { request: void; response: FfmpegStatus }
+  /** Baixa e instala o FFmpeg se ele não estiver utilizável; devolve o estado na hora e o andamento vem por evento. */
+  'ffmpeg:install': { request: void; response: FfmpegInstallState }
   /** Telas e janelas disponíveis, com miniaturas. */
   'capture:listSources': { request: ListSourcesRequest; response: CaptureSourceInfo[] }
   /** Pasta das Reuniões, espaço livre e FFmpeg, para avisar antes de gravar. */
@@ -109,6 +118,16 @@ export interface IpcContract {
   'app:openExternal': { request: { url: string }; response: null }
   'settings:get': { request: void; response: SettingsView }
   'settings:update': { request: SettingsPatch; response: SettingsView }
+  /** Troca o atalho das Anotações depois de conferir que ele não está em uso por outro programa. */
+  'settings:setNoteShortcut': { request: { accelerator: string }; response: Result<SettingsView> }
+  /** Abre o seletor de pasta e mede as Reuniões que seriam movidas; `null` se o usuário cancelou. */
+  'meetingsDir:choose': { request: void; response: Result<MeetingsDirChoice | null> }
+  /** Troca a pasta das Reuniões (movendo as existentes, se pedido); o andamento vem por evento. */
+  'meetingsDir:apply': { request: RelocationRequest; response: Result<RelocationSummary> }
+  /** Interrompe a troca depois da Reunião em andamento. */
+  'meetingsDir:cancel': { request: void; response: null }
+  /** Abre no Explorador a pasta atual das Reuniões ou a que ficou para trás na última troca. */
+  'meetingsDir:open': { request: { which: 'current' | 'previous' }; response: null }
   'recovery:getReport': { request: void; response: RecoveryReport }
   'recovery:retry': { request: void; response: RecoveryReport }
   /** Barra flutuante: atalho das Anotações e se ele foi registrado. */
@@ -125,6 +144,10 @@ export interface IpcContract {
   'notes:save': { request: { text: string }; response: Result<null> }
   /** Fecha o campo sem salvar e devolve o foco ao app anterior. */
   'notes:cancel': { request: void; response: null }
+  /** Estado da atualização automática (só no app instalado). */
+  'update:getState': { request: void; response: UpdateState }
+  /** Reinicia para instalar a atualização baixada; recusado durante a gravação. */
+  'update:restart': { request: void; response: Result<null> }
 }
 
 /** Eventos main -> renderer (a UI se inscreve com `window.api.on`). */
@@ -147,6 +170,12 @@ export interface IpcEventContract {
   'compaction:changed': CompactionChangedEvent
   /** O índice da Biblioteca mudou: telas com lista de Reuniões consultam de novo. */
   'library:changed': null
+  /** A atualização automática mudou de estado (baixando, pronta…). */
+  'update:changed': UpdateState
+  /** Andamento da instalação do FFmpeg. */
+  'ffmpeg:install': FfmpegInstallState
+  /** Andamento da troca da pasta das Reuniões. */
+  'meetingsDir:progress': RelocationProgress
 }
 
 export type IpcEventName = keyof IpcEventContract
@@ -178,6 +207,7 @@ export type IpcHandlers = { [C in IpcChannel]: IpcHandler<C> }
 export const IPC_CHANNELS = {
   'app:getVersion': true,
   'ffmpeg:status': true,
+  'ffmpeg:install': true,
   'capture:listSources': true,
   'recording:preflight': true,
   'recording:getState': true,
@@ -218,6 +248,11 @@ export const IPC_CHANNELS = {
   'app:openExternal': true,
   'settings:get': true,
   'settings:update': true,
+  'settings:setNoteShortcut': true,
+  'meetingsDir:choose': true,
+  'meetingsDir:apply': true,
+  'meetingsDir:cancel': true,
+  'meetingsDir:open': true,
   'recovery:getReport': true,
   'recovery:retry': true,
   'floating:getInfo': true,
@@ -226,7 +261,9 @@ export const IPC_CHANNELS = {
   'notes:openEditor': true,
   'notes:begin': true,
   'notes:save': true,
-  'notes:cancel': true
+  'notes:cancel': true,
+  'update:getState': true,
+  'update:restart': true
 } as const satisfies Record<IpcChannel, true>
 
 export const IPC_EVENTS = {
@@ -240,7 +277,10 @@ export const IPC_EVENTS = {
   'summary:changed': true,
   'chat:event': true,
   'compaction:changed': true,
-  'library:changed': true
+  'library:changed': true,
+  'update:changed': true,
+  'ffmpeg:install': true,
+  'meetingsDir:progress': true
 } as const satisfies Record<IpcEventName, true>
 
 export function isIpcEvent(value: unknown): value is IpcEventName {

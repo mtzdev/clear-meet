@@ -89,6 +89,19 @@ describe('SettingsStore', () => {
   })
 })
 
+describe('SettingsStore: pasta das Reuniões', () => {
+  it('setMeetingsDir grava a pasta e preserva o resto', async () => {
+    const store = new SettingsStore(userData, documents)
+    await store.load()
+    await store.update({ quality: '720p' })
+    await store.setMeetingsDir('E:\\Reunioes')
+    expect(store.view().resolvedMeetingsDir).toBe('E:\\Reunioes')
+
+    const reopened = new SettingsStore(userData, documents)
+    expect(await reopened.load()).toMatchObject({ meetingsDir: 'E:\\Reunioes', quality: '720p' })
+  })
+})
+
 describe('SettingsStore: posição da barra', () => {
   it('lembra a última posição e a relê em outra instância, sem mexer no resto', async () => {
     const store = new SettingsStore(userData, documents)

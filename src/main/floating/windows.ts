@@ -76,7 +76,7 @@ function pinOnTop(window: BrowserWindow): void {
 
 /**
  * A barra: não rouba o foco ao ser clicada (assim pausar/parar não tira o foco da reunião),
- * arrastável pela própria página e fora da captura (`setContentProtection`, validado na Fase 0).
+ * arrastável pela própria página e fora da captura (`setContentProtection`).
  */
 export function createBarWindow(
   context: WindowContext,

@@ -7,3 +7,13 @@ export const WINDOW_BACKGROUND = {
   light: '#fafafb',
   dark: '#0e0f13'
 } as const
+
+/** Escolha de tema do usuário: seguir o Windows (padrão) ou fixar claro/escuro. */
+export const THEME_PREFERENCES = ['system', 'light', 'dark'] as const
+export type ThemePreference = (typeof THEME_PREFERENCES)[number]
+
+export const DEFAULT_THEME: ThemePreference = 'system'
+
+export function isThemePreference(value: unknown): value is ThemePreference {
+  return typeof value === 'string' && (THEME_PREFERENCES as readonly string[]).includes(value)
+}

@@ -1,7 +1,7 @@
 /**
  * Mix do Áudio da reunião: microfone + áudio do sistema (loopback) num só sinal mono, com
- * limitador. Somar duas fontes pode passar de 0 dBFS (no teste manual da Fase 0 o mix bateu
- * 0 dBFS de pico) e o clipping distorce a voz para a Transcrição.
+ * limitador. Somar duas fontes pode passar de 0 dBFS (em teste manual o mix bateu 0 dBFS
+ * de pico) e o clipping distorce a voz para a Transcrição.
  *
  * Cadeia: soma -> compressor configurado como limitador (rápido, razão alta) -> rede de
  * segurança (curva suave que nunca passa de ~0,95) -> saída.

@@ -65,7 +65,7 @@ function messageOf(error: unknown): string {
 }
 
 /**
- * Coordena a barra flutuante e o campo de Anotação durante uma gravação (Fase 3): ao gravar,
+ * Coordena a barra flutuante e o campo de Anotação durante uma gravação: ao gravar,
  * esconde a janela principal e mostra a barra; ao parar, fecha tudo e devolve a principal.
  * O atalho global só existe enquanto grava. Toda a interação com o Electron entra por
  * `FloatingDeps`.

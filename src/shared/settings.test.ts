@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MAX_NOTE_LEAD_SECONDS } from './notes'
 import {
   applySettingsPatch,
   DEFAULT_SETTINGS,
@@ -48,8 +49,34 @@ describe('parseSettings', () => {
       barPosition: { x: 120, y: -30 },
       transcriptionModel: 'gemini-3.5-flash-lite',
       groqTextModel: 'openai/gpt-oss-120b',
-      geminiTextModel: 'gemini-3.5-flash-lite'
+      geminiTextModel: 'gemini-3.5-flash-lite',
+      theme: 'system',
+      setupCompleted: false
     })
+  })
+
+  it('tema: padrão acompanha o sistema; aceita claro e escuro e ignora o resto', () => {
+    expect(DEFAULT_SETTINGS.theme).toBe('system')
+    expect(parseSettings({ theme: 'dark' }).theme).toBe('dark')
+    expect(parseSettings({ theme: 'light' }).theme).toBe('light')
+    for (const theme of ['azul', 1, null]) {
+      expect(parseSettings({ theme }).theme).toBe('system')
+    }
+  })
+
+  it('configuração inicial: começa pendente e só aceita booleano', () => {
+    expect(DEFAULT_SETTINGS.setupCompleted).toBe(false)
+    expect(parseSettings({ setupCompleted: true }).setupCompleted).toBe(true)
+    expect(parseSettings({ setupCompleted: 'sim' }).setupCompleted).toBe(false)
+  })
+
+  it('atalho salvo é normalizado; inválido (sem modificador, desconhecido) volta ao padrão', () => {
+    expect(parseSettings({ noteShortcut: 'CommandOrControl+shift+n' }).noteShortcut).toBe(
+      'Ctrl+Shift+N'
+    )
+    for (const noteShortcut of ['N', 'Shift+N', 'Ctrl+Banana', 'Ctrl+', 'Ctrl+Esc']) {
+      expect(parseSettings({ noteShortcut }).noteShortcut).toBe('Ctrl+Shift+Space')
+    }
   })
 
   it('áudio do sistema: ligado por padrão; só booleano é aceito', () => {
@@ -133,6 +160,39 @@ describe('applySettingsPatch', () => {
     const current = { ...DEFAULT_SETTINGS }
     applySettingsPatch(current, { quality: '720p' })
     expect(current.quality).toBe('1080p')
+  })
+})
+
+describe('applySettingsPatch: Anotações, tema e configuração inicial', () => {
+  it('troca o atalho (normalizado) e ignora atalhos inválidos', () => {
+    const next = applySettingsPatch(DEFAULT_SETTINGS, { noteShortcut: 'alt+ctrl+j' })
+    expect(next.noteShortcut).toBe('Ctrl+Alt+J')
+    expect(applySettingsPatch(next, { noteShortcut: 'J' }).noteShortcut).toBe('Ctrl+Alt+J')
+    expect(applySettingsPatch(next, { noteShortcut: '' }).noteShortcut).toBe('Ctrl+Alt+J')
+  })
+
+  it('recuo: aceita de 0 ao máximo (arredondado) e ignora o resto', () => {
+    expect(applySettingsPatch(DEFAULT_SETTINGS, { noteLeadSeconds: 0 }).noteLeadSeconds).toBe(0)
+    expect(applySettingsPatch(DEFAULT_SETTINGS, { noteLeadSeconds: 12.6 }).noteLeadSeconds).toBe(13)
+    expect(
+      applySettingsPatch(DEFAULT_SETTINGS, { noteLeadSeconds: MAX_NOTE_LEAD_SECONDS })
+        .noteLeadSeconds
+    ).toBe(MAX_NOTE_LEAD_SECONDS)
+    for (const noteLeadSeconds of [-1, MAX_NOTE_LEAD_SECONDS + 1, Number.NaN, '5' as never]) {
+      expect(applySettingsPatch(DEFAULT_SETTINGS, { noteLeadSeconds }).noteLeadSeconds).toBe(5)
+    }
+  })
+
+  it('tema e configuração inicial', () => {
+    const dark = applySettingsPatch(DEFAULT_SETTINGS, { theme: 'dark', setupCompleted: true })
+    expect(dark).toEqual({ ...DEFAULT_SETTINGS, theme: 'dark', setupCompleted: true })
+    expect(applySettingsPatch(dark, { theme: 'roxo' as never }).theme).toBe('dark')
+    expect(applySettingsPatch(dark, { setupCompleted: 'x' as never }).setupCompleted).toBe(true)
+  })
+
+  it('a pasta das Reuniões não entra pelo patch genérico', () => {
+    const next = applySettingsPatch(DEFAULT_SETTINGS, { meetingsDir: 'D:\\x' } as never)
+    expect(next.meetingsDir).toBeNull()
   })
 })
 

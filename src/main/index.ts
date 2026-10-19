@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import { mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   globalShortcut,
   Menu,
@@ -18,6 +20,7 @@ import { API_KEY_LINKS, isAiProvider } from '@shared/ai'
 import { parseCleanupRequest } from '@shared/cleanup'
 import type { IpcEventName, IpcEventPayload } from '@shared/ipc'
 import { MEDIA_SCHEME } from '@shared/media'
+import { normalizeAccelerator } from '@shared/shortcut'
 import {
   assessDisk,
   mainWindowCloseAction,
@@ -37,12 +40,14 @@ import { CleanupService } from './cleanup/service'
 import { Av1EncoderDetector } from './compaction/encoders'
 import { CompactionService } from './compaction/service'
 import { getFfmpegStatus, type StatusOptions } from './ffmpeg'
+import { FfmpegInstaller } from './ffmpeg/installer'
 import { resolveFfmpegTools } from './ffmpeg/media'
 import { freeDiskBytes } from './fs/atomic'
 import { CaptureSources } from './capture/sources'
 import { loadWindowTools } from './capture/window-info'
 import { loadWindowStateProbe } from './capture/window-state'
 import { FloatingController } from './floating/controller'
+import { isShortcutAvailable } from './floating/shortcut-check'
 import { loadForegroundTools } from './floating/foreground'
 import { createRecordingTray } from './floating/tray'
 import { createBarWindow, createNoteWindow, readDisplays } from './floating/windows'
@@ -53,6 +58,7 @@ import { loadSqlite } from './library/sqlite'
 import { createMediaHandler } from './media/handler'
 import { loadMeetingDetail } from './meetings/library'
 import { addMeetingNote, deleteMeetingNote, editMeetingNote } from './meetings/notes-store'
+import { MeetingsRelocation } from './meetings/relocation'
 import { trashMeetingFolder, trashMeetingVideo } from './meetings/trash'
 import { sameFolder } from './meetings/paths'
 import { isDirectChild, renameMeeting } from './meetings/repository'
@@ -63,6 +69,8 @@ import { createRecorderSessionFactory, recorderPaths } from './recording/recorde
 import { RecordingService } from './recording/service'
 import { installPermissionHandlers } from './security'
 import { readVideoEncoderSync, resolveMeetingsDir, SettingsStore } from './settings/store'
+import { createElectronUpdateDriver } from './updater/electron'
+import { UpdaterService } from './updater/service'
 import { createMainWindow } from './window'
 
 const log = (message: string): void => console.log(message)
@@ -73,7 +81,7 @@ const devUserData = app.isPackaged ? undefined : process.env['CLEARMEET_USER_DAT
 const devMeetingsDir = app.isPackaged ? undefined : process.env['CLEARMEET_MEETINGS_DIR']
 if (devUserData) app.setPath('userData', devUserData)
 // Sem a detecção nativa de oclusão do Windows, o Chromium continua pintando janelas suas que
-// estão cobertas por outras (como o spike da Fase 0 fazia). Vale para a janela de gravação e
+// estão cobertas por outras. Vale para a janela de gravação e
 // para uma janela do próprio app que esteja sendo gravada.
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 // Codificador de vídeo por software (padrão). Flag de processo: só vale ao iniciar o app, e é
@@ -155,11 +163,15 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(async () => {
-    nativeTheme.themeSource = 'system'
-    if (app.isPackaged) Menu.setApplicationMenu(null)
+    if (app.isPackaged) {
+      Menu.setApplicationMenu(null)
+      // Mesmo `appId` do instalador: atalhos e a barra de tarefas agrupam no mesmo app.
+      app.setAppUserModelId('com.mtzdev.clearmeet')
+    }
 
     const settings = new SettingsStore(app.getPath('userData'), app.getPath('documents'))
     await settings.load()
+    nativeTheme.themeSource = settings.get().theme
     const meetingsDir = (): string =>
       devMeetingsDir ?? resolveMeetingsDir(settings.get(), app.getPath('documents'))
 
@@ -177,6 +189,8 @@ if (!app.requestSingleInstanceLock()) {
       vendorRoot: app.isPackaged ? null : join(app.getAppPath(), 'vendor', 'ffmpeg')
     }
     const getTools = (): ReturnType<typeof resolveFfmpegTools> => resolveFfmpegTools(ffmpegOptions)
+    // Preenchido adiante; as Compactações e miniaturas consultam enquanto a pasta é trocada.
+    let relocation: MeetingsRelocation | null = null
 
     const devUrl = process.env['ELECTRON_RENDERER_URL']
     const recorderFactory = createRecorderSessionFactory({
@@ -266,8 +280,8 @@ if (!app.requestSingleInstanceLock()) {
       getTools,
       enabled: () => settings.get().compaction && !automation,
       mode: () => settings.get().compactionMode,
-      // Como as miniaturas, a Compactação espera a gravação terminar.
-      canRun: () => !service.isBusy(),
+      // Como as miniaturas, a Compactação espera a gravação terminar (e a troca de pasta).
+      canRun: () => !service.isBusy() && relocation?.isRunning !== true,
       detector: new Av1EncoderDetector(),
       emit: (event) => sendToRenderer('compaction:changed', event),
       onFolderChanged: (folder) => void libraryIndex.refresh(folder),
@@ -431,11 +445,81 @@ if (!app.requestSingleInstanceLock()) {
       return result
     }
 
+    const updater = new UpdaterService({
+      driver: app.isPackaged ? createElectronUpdateDriver(log) : null,
+      recordingPhase: () => service.getState().phase,
+      emit: (state) => sendToRenderer('update:changed', state),
+      log
+    })
+
+    const ffmpegInstaller = new FfmpegInstaller({
+      destRoot: ffmpegOptions.downloadedRoot,
+      getStatus: () => getFfmpegStatus(ffmpegOptions),
+      emit: (state) => sendToRenderer('ffmpeg:install', state),
+      onInstalled: () => {
+        // Miniaturas e Compactações que esperavam pelo FFmpeg seguem.
+        void libraryIndex.reconcile({ force: true })
+        void compactor.scan()
+      },
+      now: () => Date.now(),
+      log
+    })
+
+    const meetingsRelocation = new MeetingsRelocation({
+      currentDir: meetingsDir,
+      chooseFolder: async (defaultPath) => {
+        const options: Electron.OpenDialogOptions = {
+          title: 'Escolher a pasta das Reuniões',
+          defaultPath,
+          properties: ['openDirectory', 'createDirectory']
+        }
+        const result =
+          mainWindow && !mainWindow.isDestroyed()
+            ? await dialog.showOpenDialog(mainWindow, options)
+            : await dialog.showOpenDialog(options)
+        return result.canceled ? null : (result.filePaths[0] ?? null)
+      },
+      busyReason: () => {
+        if (service.isBusy()) {
+          return 'Há uma gravação em andamento. Troque a pasta quando ela terminar.'
+        }
+        if (transcription.hasActive() || summary.hasActive() || chat.hasActive()) {
+          return 'A IA está trabalhando em uma Reunião. Troque a pasta quando ela terminar.'
+        }
+        if (recovery.getReport().running) {
+          return 'O app está recuperando gravações. Tente de novo em instantes.'
+        }
+        return null
+      },
+      pause: async () => {
+        await compactor.pause()
+        await libraryIndex.pause()
+      },
+      resume: () => {
+        libraryIndex.resume()
+        compactor.kick()
+        void compactor.scan()
+      },
+      commit: async (newDir) => {
+        await settings.setMeetingsDir(newDir)
+        // A tela de Gravar não deve mais apontar para uma Reunião da pasta antiga.
+        await service.acknowledge()
+      },
+      emit: (progress) => sendToRenderer('meetingsDir:progress', progress),
+      log
+    })
+    relocation = meetingsRelocation
+
     registerIpcHandlers(
       ipcMain,
       createIpcHandlers({
         getAppVersion: () => app.getVersion(),
         getFfmpegStatus: () => getFfmpegStatus(ffmpegOptions),
+        installFfmpeg: () => ffmpegInstaller.start(),
+        relocationBlock: () =>
+          meetingsRelocation.isRunning
+            ? 'A pasta das Reuniões está sendo trocada. Aguarde terminar.'
+            : null,
         listSources: (request) => captureSources.list(request),
         preflight,
         recording: service,
@@ -684,9 +768,43 @@ if (!app.requestSingleInstanceLock()) {
             const view = await settings.update(patch)
             if (meetingsDir() !== before) void libraryIndex.reconcile({ force: true })
             if (patch.compaction !== undefined) compactor.onSettingsChanged()
+            if (patch.theme !== undefined) nativeTheme.themeSource = settings.get().theme
             return view
+          },
+          setNoteShortcut: async (accelerator) => {
+            const normalized = normalizeAccelerator(accelerator)
+            if (!normalized) {
+              return {
+                ok: false,
+                error: { code: 'invalid-request', message: 'Esse atalho não é válido.' }
+              }
+            }
+            // Durante a gravação o app já tem o seu atalho registrado: não dá para testar.
+            if (
+              normalized !== settings.get().noteShortcut &&
+              !service.isBusy() &&
+              !isShortcutAvailable(globalShortcut, normalized)
+            ) {
+              return {
+                ok: false,
+                error: { code: 'busy', message: 'Atalho em uso por outro programa.' }
+              }
+            }
+            return { ok: true, value: await settings.update({ noteShortcut: normalized }) }
           }
         },
+        meetingsDir: {
+          choose: () => meetingsRelocation.choose(),
+          apply: (request) => meetingsRelocation.apply(request),
+          cancel: () => meetingsRelocation.cancel(),
+          open: async (which) => {
+            const target = which === 'previous' ? meetingsRelocation.previousDir() : meetingsDir()
+            if (!target) return
+            if (which === 'current') await mkdir(target, { recursive: true }).catch(() => undefined)
+            await shell.openPath(target)
+          }
+        },
+        update: { getState: () => updater.getState(), restart: () => updater.restart() },
         recovery: { getReport: () => recovery.getReport(), retry: () => recovery.run() },
         floating: {
           getInfo: () => floatingControls.getInfo(),
@@ -701,6 +819,7 @@ if (!app.requestSingleInstanceLock()) {
     )
 
     app.on('will-quit', () => {
+      updater.stop()
       compactor.abortAll()
       globalShortcut.unregisterAll()
       void libraryIndex.close()
@@ -714,6 +833,7 @@ if (!app.requestSingleInstanceLock()) {
       void service.stop('app-quit').finally(() => app.quit())
     })
 
+    updater.start()
     openMainWindow()
     if (!process.env['CLEARMEET_AUTOMATION'] || app.isPackaged) {
       void recovery.run()
