@@ -8,6 +8,7 @@ import { StatusBadge } from '@/components/library/status-badge'
 import { Thumbnail } from '@/components/library/thumbnail'
 import { TitleEditor } from '@/components/library/title-editor'
 import { SourceIcon } from '@/components/meeting/source-icon'
+import { MeetingTags } from '@/components/tags/meeting-tags'
 import { Button } from '@/components/ui/button'
 import {
   ContextMenu,
@@ -36,7 +37,8 @@ const HIT_LABEL: Record<HitKind, string> = {
   name: 'Nome',
   utterance: 'Transcrição',
   note: 'Anotação',
-  summary: 'Resumo'
+  summary: 'Resumo',
+  tag: 'Tag'
 }
 
 const FOLDER_NOTICE_MS = 8000
@@ -137,6 +139,7 @@ export function MeetingCard({ entry }: { entry: LibraryEntry }) {
   const deleteBlock = listBlock(meeting, 'delete')
   const renameReason = renameBlock && LIST_BLOCK_TEXT[renameBlock]
   const deleteReason = deleteBlock && LIST_BLOCK_TEXT[deleteBlock]
+  const tagBlock = listBlock(meeting, 'tag')
   const videoBlock = listBlock(meeting, 'delete-video')
   const videoReason = videoBlock && LIST_BLOCK_TEXT[videoBlock]
   const name = saved?.from === meeting.name ? saved.to : meeting.name
@@ -192,6 +195,13 @@ export function MeetingCard({ entry }: { entry: LibraryEntry }) {
                       >
                         {name}
                       </a>
+                      <MeetingTags
+                        folder={meeting.folder}
+                        tags={meeting.tags}
+                        blockedReason={tagBlock && LIST_BLOCK_TEXT[tagBlock]}
+                        className="relative z-10"
+                        addClassName="opacity-0 group-focus-within/card:opacity-100 group-hover/card:opacity-100 focus-visible:opacity-100"
+                      />
                       <ActionButton
                         label="Editar título"
                         blocked={renameReason}

@@ -1,6 +1,7 @@
 import { isQualityPreset, type QualityPreset } from './capture'
 import { parseCompactionMeta, type CompactionMeta } from './compaction'
 import { parseSummaryMeta, type SummaryMeta } from './summary'
+import { parseTagList } from './tags'
 import { parseTranscriptMeta, type TranscriptMeta } from './transcript'
 
 /**
@@ -90,6 +91,12 @@ export interface MeetingFile {
   transcript?: TranscriptMeta
   /** Estado do Resumo; o conteúdo fica em `summary.json`, e a Conversa em `chat.json`. */
   summary?: SummaryMeta
+  /** Tags da Reunião; ausente = nenhuma. Arquivos antigos, sem o campo, continuam válidos. */
+  tags?: string[]
+}
+
+export function meetingTags(meeting: Pick<MeetingFile, 'tags'>): string[] {
+  return meeting.tags ?? []
 }
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string }
@@ -260,6 +267,8 @@ export function parseMeeting(raw: unknown): ParseResult<MeetingFile> {
   if (transcript) meeting.transcript = transcript
   const summary = parseSummaryMeta(raw.summary)
   if (summary) meeting.summary = summary
+  const tags = parseTagList(raw.tags)
+  if (tags.length > 0) meeting.tags = tags
   return { ok: true, value: meeting }
 }
 

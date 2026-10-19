@@ -3,11 +3,12 @@ import type { ListCompaction } from '@shared/compaction'
 import type { CaptureSourceKind, MeetingStatus } from '@shared/meeting'
 import type { HitKind, LibrarySort } from '@shared/library'
 import type { SummaryStatus } from '@shared/summary'
+import { tagKey, type TagInfo } from '@shared/tags'
 import type { TranscriptStatus } from '@shared/transcript'
 import type { Database, SqliteModule } from './sqlite'
 
 /** Muda quando o formato do índice muda: o índice antigo é descartado e reconstruído das pastas. */
-export const LIBRARY_SCHEMA_VERSION = 2
+export const LIBRARY_SCHEMA_VERSION = 3
 
 export const IN_MEMORY = ':memory:'
 
@@ -54,6 +55,8 @@ export interface SearchParams {
   fts: string | null
   fromMs: number | null
   toMs: number | null
+  /** Chaves (`tagKey`) das Tags do filtro; a Reunião precisa ter ao menos uma. */
+  tagKeys: readonly string[]
   sort: LibrarySort
   limit: number
 }
@@ -101,6 +104,14 @@ CREATE TABLE meetings (
   thumb_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX meetings_created ON meetings (created_ms);
+
+CREATE TABLE meeting_tags (
+  meeting_id TEXT NOT NULL,
+  tag_key TEXT NOT NULL,
+  name TEXT NOT NULL,
+  PRIMARY KEY (meeting_id, tag_key)
+);
+CREATE INDEX meeting_tags_key ON meeting_tags (tag_key);
 
 CREATE TABLE skipped (
   folder_name TEXT PRIMARY KEY COLLATE NOCASE,
@@ -160,9 +171,16 @@ function toStored(row: Row): StoredMeeting {
   }
 }
 
-function dateFilter(params: SearchParams): { sql: string; values: Param[] } {
+function whereClause(params: SearchParams): { sql: string; values: Param[] } {
   const clauses: string[] = []
   const values: Param[] = []
+  if (params.tagKeys.length > 0) {
+    const marks = params.tagKeys.map(() => '?').join(', ')
+    clauses.push(
+      `EXISTS (SELECT 1 FROM meeting_tags t WHERE t.meeting_id = m.id AND t.tag_key IN (${marks}))`
+    )
+    values.push(...params.tagKeys)
+  }
   if (params.fromMs !== null) {
     clauses.push('m.created_ms >= ?')
     values.push(params.fromMs)
@@ -175,7 +193,7 @@ function dateFilter(params: SearchParams): { sql: string; values: Param[] } {
 }
 
 const BEST_FRAGMENT_SCORE =
-  "(CASE WHEN f.kind = 'name' THEN fragments_fts.rank * 3 ELSE fragments_fts.rank END)"
+  "(CASE WHEN f.kind IN ('name', 'tag') THEN fragments_fts.rank * 3 ELSE fragments_fts.rank END)"
 
 function orderBy(sort: LibrarySort, hasText: boolean): string {
   switch (sort) {
@@ -235,7 +253,9 @@ export class LibraryDb {
   /** Esvazia o índice (a pasta das Reuniões mudou). */
   clear(): void {
     this.transaction(() => {
-      this.db.exec('DELETE FROM fragments; DELETE FROM meetings; DELETE FROM skipped;')
+      this.db.exec(
+        'DELETE FROM fragments; DELETE FROM meeting_tags; DELETE FROM meetings; DELETE FROM skipped;'
+      )
     })
   }
 
@@ -281,8 +301,8 @@ export class LibraryDb {
     })
   }
 
-  /** Grava a Reunião e troca os trechos pesquisáveis. A miniatura já gerada é preservada. */
-  upsert(row: MeetingRow, fragments: readonly FragmentInput[]): void {
+  /** Grava a Reunião e troca os trechos pesquisáveis e as Tags. A miniatura já gerada é preservada. */
+  upsert(row: MeetingRow, fragments: readonly FragmentInput[], tags: readonly string[] = []): void {
     this.transaction(() => {
       // Outra linha na mesma pasta (a Reunião foi substituída) ou a mesma Reunião em outra pasta.
       const clash = this.get('SELECT id FROM meetings WHERE folder_name = ? AND id <> ?', [
@@ -324,6 +344,11 @@ export class LibraryDb {
           row.signature
         ]
       )
+      this.run('DELETE FROM meeting_tags WHERE meeting_id = ?', [row.id])
+      const insertTag = this.db.prepare(
+        'INSERT OR IGNORE INTO meeting_tags (meeting_id, tag_key, name) VALUES (?, ?, ?)'
+      )
+      for (const tag of tags) insertTag.run(row.id, tagKey(tag), tag)
       this.run('DELETE FROM fragments WHERE meeting_id = ?', [row.id])
       const insert = this.db.prepare(
         'INSERT INTO fragments (meeting_id, kind, offset_ms, speaker, body) VALUES (?, ?, ?, ?, ?)'
@@ -336,6 +361,7 @@ export class LibraryDb {
 
   private deleteMeeting(id: string): void {
     this.run('DELETE FROM fragments WHERE meeting_id = ?', [id])
+    this.run('DELETE FROM meeting_tags WHERE meeting_id = ?', [id])
     this.run('DELETE FROM meetings WHERE id = ?', [id])
   }
 
@@ -362,6 +388,30 @@ export class LibraryDb {
   findByFolder(folderName: string): StoredMeeting | null {
     const row = this.get('SELECT * FROM meetings WHERE folder_name = ?', [folderName])
     return row ? toStored(row) : null
+  }
+
+  /** Tags de cada Reunião pedida, na ordem em que foram gravadas na Reunião. */
+  tagsFor(meetingIds: readonly string[]): Map<string, string[]> {
+    const result = new Map<string, string[]>()
+    if (meetingIds.length === 0) return result
+    const marks = meetingIds.map(() => '?').join(', ')
+    for (const row of this.all(
+      `SELECT meeting_id, name FROM meeting_tags WHERE meeting_id IN (${marks}) ORDER BY rowid`,
+      [...meetingIds]
+    )) {
+      const id = row['meeting_id'] as string
+      const list = result.get(id) ?? []
+      list.push(row['name'] as string)
+      result.set(id, list)
+    }
+    return result
+  }
+
+  /** Tags usadas por alguma Reunião, com quantas Reuniões cada uma tem. */
+  tagCounts(): TagInfo[] {
+    return this.all(
+      'SELECT MIN(name) AS name, count(*) AS n FROM meeting_tags GROUP BY tag_key'
+    ).map((row) => ({ name: row['name'] as string, count: row['n'] as number }))
   }
 
   /** Reuniões com Vídeo cuja miniatura não foi gerada para o Vídeo atual, mais recentes primeiro. */
@@ -398,7 +448,7 @@ export class LibraryDb {
   }
 
   query(params: SearchParams): { rows: StoredMeeting[]; total: number } {
-    const filter = dateFilter(params)
+    const filter = whereClause(params)
     if (params.fts === null) {
       const rows = this.all(
         `SELECT m.* FROM meetings m ${filter.sql} ORDER BY ${orderBy(params.sort, false)} LIMIT ?`,

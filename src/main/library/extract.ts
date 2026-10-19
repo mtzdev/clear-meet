@@ -1,5 +1,5 @@
 import type { HitKind } from '@shared/library'
-import type { MeetingFile } from '@shared/meeting'
+import { meetingTags, type MeetingFile } from '@shared/meeting'
 import type { SummaryFile } from '@shared/summary'
 import { labelFor, type TranscriptFile } from '@shared/transcript'
 import type { FragmentInput, MeetingRow } from './db'
@@ -40,7 +40,7 @@ function fragment(
 }
 
 /**
- * Tudo o que a busca encontra: nome, Falas (com Falante e Instante), Anotações e Resumo. Os
+ * Tudo o que a busca encontra: nome, Tags, Falas (com Falante e Instante), Anotações e Resumo. Os
  * itens do Resumo apontam para o primeiro Instante que citam.
  */
 export function buildFragments(
@@ -49,6 +49,7 @@ export function buildFragments(
   summary: SummaryFile | null
 ): FragmentInput[] {
   const found: (FragmentInput | null)[] = [fragment('name', null, meeting.name)]
+  for (const tag of meetingTags(meeting)) found.push(fragment('tag', null, tag))
   if (transcript) {
     for (const utterance of transcript.utterances) {
       found.push(

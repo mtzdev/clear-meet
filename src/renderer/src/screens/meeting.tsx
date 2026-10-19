@@ -290,6 +290,7 @@ function MeetingView({
       <MeetingHeader
         detail={detail}
         canRename={!locked && !transcribing && !summarizing && !compacting}
+        tagsBlockedReason={detail.lock ? LOCK_TEXT[detail.lock].title : null}
         onRename={rename}
         deleteVideo={
           detail.hasVideoFile && detail.hasAudioFile

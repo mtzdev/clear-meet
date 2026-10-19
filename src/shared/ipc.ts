@@ -27,6 +27,7 @@ import type {
 } from './relocation'
 import type { SettingsPatch, SettingsView } from './settings'
 import type { SummaryChangedEvent, SummaryFile } from './summary'
+import type { TagInfo } from './tags'
 import type { TranscriptChangedEvent, TranscriptFile } from './transcript'
 import type { UpdateState } from './update'
 
@@ -89,6 +90,21 @@ export interface IpcContract {
     response: Result<MeetingNote>
   }
   'meeting:deleteNote': { request: { folder: string; noteId: string }; response: Result<null> }
+  /** Marca a Reunião (pronta) com a Tag, criando-a se for nova; devolve as Tags da Reunião. */
+  'meeting:addTag': { request: { folder: string; name: string }; response: Result<string[]> }
+  /** Tira a Tag da Reunião; a Tag continua no catálogo. */
+  'meeting:removeTag': { request: { folder: string; name: string }; response: Result<string[]> }
+  /** Catálogo efetivo de Tags (inclusive as sem Reunião), com a contagem de cada uma. */
+  'tags:list': { request: void; response: TagInfo[] }
+  /** Cria uma Tag no catálogo, sem marcar nenhuma Reunião. */
+  'tags:create': { request: { name: string }; response: Result<TagInfo> }
+  /** Renomeia a Tag em todas as Reuniões; para o nome de outra Tag que existe, junta as duas. */
+  'tags:rename': {
+    request: { from: string; to: string }
+    response: Result<{ name: string; updated: number }>
+  }
+  /** Apaga a Tag do catálogo e de todas as Reuniões. */
+  'tags:delete': { request: { name: string }; response: Result<{ updated: number }> }
   /** Transcrição pronta (`transcript.json`), ou `null` se a Reunião ainda não tem. */
   'transcript:get': { request: { folder: string }; response: Result<TranscriptFile | null> }
   /** Começa a Transcrição em segundo plano (ou retoma uma que falhou); o andamento vem por evento. */
@@ -237,6 +253,12 @@ export const IPC_CHANNELS = {
   'meeting:addNote': true,
   'meeting:updateNote': true,
   'meeting:deleteNote': true,
+  'meeting:addTag': true,
+  'meeting:removeTag': true,
+  'tags:list': true,
+  'tags:create': true,
+  'tags:rename': true,
+  'tags:delete': true,
   'transcript:get': true,
   'transcript:start': true,
   'transcript:cancel': true,

@@ -8,7 +8,7 @@ import { parseThumbnailUrl } from '@shared/media'
 import type { FfmpegTools, ProcessResult, RunProcess } from '../ffmpeg/media'
 import { addMeetingNote, deleteMeetingNote } from '../meetings/notes-store'
 import { trashMeetingFolder } from '../meetings/trash'
-import { renameMeeting, writeMeeting } from '../meetings/repository'
+import { readMeeting, renameMeeting, writeMeeting } from '../meetings/repository'
 import { renameTranscriptSpeaker } from '../meetings/transcript-store'
 import { hasFts5 } from './db'
 import {
@@ -111,12 +111,20 @@ describe('normalizeQuery', () => {
     expect(
       normalizeQuery({
         text: 'x'.repeat(500),
+        tags: ['Daily', 'daily', 'Diária'],
         fromMs: Number.NaN,
         toMs: 5,
         sort: 'invalida' as LibraryQuery['sort'],
         limit: 99_999
       })
-    ).toEqual({ text: 'x'.repeat(200), fromMs: null, toMs: 5, sort: 'newest', limit: 500 })
+    ).toEqual({
+      text: 'x'.repeat(200),
+      tagKeys: ['daily', 'diaria'],
+      fromMs: null,
+      toMs: 5,
+      sort: 'newest',
+      limit: 500
+    })
     expect(normalizeQuery(query({ limit: 0 })).limit).toBe(1)
     expect(normalizeQuery(query()).limit).toBe(500)
   })
@@ -814,5 +822,111 @@ suite('exclusão', () => {
     const notes = await service.notesFor('a')
     expect(notes?.map((note) => note.text).sort()).toEqual(['cinco', 'um'])
     expect(await service.notesFor('nao-existe')).toBeNull()
+  })
+})
+
+suite('Tags', () => {
+  async function populate(): Promise<LibraryService> {
+    await createFolder(
+      root,
+      'a',
+      spec('a', 'Planejamento', 10, { meeting: { tags: ['Daily', 'Cliente'] } })
+    )
+    await createFolder(root, 'b', spec('b', 'Revisão', 11, { meeting: { tags: ['daily'] } }))
+    await createFolder(root, 'c', spec('c', 'Retro', 12, { meeting: { tags: ['Sprint'] } }))
+    await createFolder(root, 'd', spec('d', 'Sem tags', 13))
+    const { service } = createService()
+    await sync(service)
+    return service
+  }
+
+  it('a lista traz as Tags de cada Reunião', async () => {
+    const service = await populate()
+    const result = await service.search(query())
+    const tags = Object.fromEntries(
+      result.entries.map((entry) => [entry.meeting.id, entry.meeting.tags])
+    )
+    expect(tags).toEqual({ a: ['Daily', 'Cliente'], b: ['daily'], c: ['Sprint'], d: [] })
+  })
+
+  it('filtra por uma Tag sem diferenciar maiúsculas nem acentos', async () => {
+    const service = await populate()
+    expect(await names(service, { tags: ['DAILY'] })).toEqual(['Revisão', 'Planejamento'])
+  })
+
+  it('várias Tags valem como OU', async () => {
+    const service = await populate()
+    expect(await names(service, { tags: ['Cliente', 'Sprint'] })).toEqual(['Retro', 'Planejamento'])
+    const result = await service.search(query({ tags: ['Cliente', 'Sprint'] }))
+    expect(result.total).toBe(2)
+  })
+
+  it('uma Tag que ninguém tem não devolve nada, mas o índice não está vazio', async () => {
+    const service = await populate()
+    const result = await service.search(query({ tags: ['Inexistente'] }))
+    expect(result.entries).toEqual([])
+    expect(result.indexed).toBe(4)
+  })
+
+  it('combina com a busca de texto, as datas e a ordenação', async () => {
+    const service = await populate()
+    expect(await names(service, { tags: ['Daily'], text: 'revisao' })).toEqual(['Revisão'])
+    expect(await names(service, { tags: ['Daily'], fromMs: Date.parse(days(11)) })).toEqual([
+      'Revisão'
+    ])
+    expect(await names(service, { tags: ['Daily', 'Sprint'], sort: 'oldest' })).toEqual([
+      'Planejamento',
+      'Revisão',
+      'Retro'
+    ])
+  })
+
+  it('conta as Reuniões de cada Tag', async () => {
+    const service = await populate()
+    const counts = (await service.tagCounts())
+      .map((tag) => `${tag.name.toLowerCase()}:${tag.count}`)
+      .sort()
+    expect(counts).toEqual(['cliente:1', 'daily:2', 'sprint:1'])
+  })
+
+  it('o nome da Tag também é pesquisável no texto', async () => {
+    const service = await populate()
+    const found = await service.search(query({ text: 'sprint' }))
+    expect(found.entries.map((entry) => entry.meeting.name)).toEqual(['Retro'])
+    expect(found.entries[0]?.hits[0]).toMatchObject({ kind: 'tag', offsetMs: null })
+  })
+
+  it('adicionar e remover Tags pelo disco aparece depois do refresh', async () => {
+    const service = await populate()
+    const folder = join(root, 'd')
+    const read = await readMeeting(folder)
+    if (!read.ok) throw new Error(read.error)
+    await writeMeeting(folder, { ...read.value, tags: ['Nova'] })
+    await service.refresh(folder)
+    await service.settled()
+    expect(await names(service, { tags: ['nova'] })).toEqual(['Sem tags'])
+
+    await writeMeeting(folder, read.value)
+    await service.refresh(folder)
+    await service.settled()
+    expect(await names(service, { tags: ['nova'] })).toEqual([])
+  })
+
+  it('apagar o índice e reconstruir mantém as Tags (vêm do meeting.json)', async () => {
+    const first = await populate()
+    await first.close()
+    await rm(join(userData, 'library.db'))
+    const second = createService()
+    await sync(second.service)
+    expect(await names(second.service, { tags: ['sprint'] })).toEqual(['Retro'])
+    expect(await second.service.tagCounts()).toHaveLength(3)
+  })
+
+  it('excluir a Reunião tira as Tags do índice', async () => {
+    const service = await populate()
+    await trashMeetingFolder(root, join(root, 'c'), removeFolder)
+    await service.refresh(join(root, 'c'))
+    await service.settled()
+    expect((await service.tagCounts()).map((tag) => tag.name)).not.toContain('Sprint')
   })
 })

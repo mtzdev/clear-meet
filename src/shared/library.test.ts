@@ -122,6 +122,16 @@ describe('listBlock', () => {
     }
   })
 
+  it('Tags só esperam a gravação e o pós-processamento, não a IA nem a Compactação', () => {
+    expect(listBlock(input(), 'tag')).toBeNull()
+    expect(
+      listBlock(input({ transcriptStatus: 'running', compactionStatus: 'running' }), 'tag')
+    ).toBeNull()
+    expect(listBlock(input({ live: true }), 'tag')).toBe('recording')
+    expect(listBlock(input({ status: 'recording' }), 'tag')).toBe('recording')
+    expect(listBlock(input({ status: 'processing' }), 'tag')).toBe('unfinished')
+  })
+
   it('apagar só o vídeo exige Reunião pronta, mas não espera a IA', () => {
     expect(listBlock(input(), 'delete-video')).toBeNull()
     expect(listBlock(input({ live: true }), 'delete-video')).toBe('recording')

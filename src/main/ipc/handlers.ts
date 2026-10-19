@@ -21,6 +21,7 @@ import type {
 import type { MeetingsDirChoice, RelocationRequest, RelocationSummary } from '@shared/relocation'
 import type { SettingsPatch, SettingsView } from '@shared/settings'
 import type { SummaryFile } from '@shared/summary'
+import type { TagInfo } from '@shared/tags'
 import type { TranscriptFile } from '@shared/transcript'
 import type { UpdateState } from '@shared/update'
 
@@ -61,6 +62,14 @@ export interface HandlerDeps {
     addNote(folder: string, offsetMs: number, text: string): Promise<Result<MeetingNote>>
     updateNote(folder: string, noteId: string, text: string): Promise<Result<MeetingNote>>
     deleteNote(folder: string, noteId: string): Promise<Result<null>>
+    addTag(folder: string, name: string): Promise<Result<string[]>>
+    removeTag(folder: string, name: string): Promise<Result<string[]>>
+  }
+  tags: {
+    list(): Promise<TagInfo[]>
+    create(name: string): Promise<Result<TagInfo>>
+    rename(from: string, to: string): Promise<Result<{ name: string; updated: number }>>
+    delete(name: string): Promise<Result<{ updated: number }>>
   }
   transcript: {
     get(folder: string): Promise<Result<TranscriptFile | null>>
@@ -126,6 +135,11 @@ const FOLDER_CHANNELS = [
   'meeting:addNote',
   'meeting:updateNote',
   'meeting:deleteNote',
+  'meeting:addTag',
+  'meeting:removeTag',
+  'tags:create',
+  'tags:rename',
+  'tags:delete',
   'compaction:retry',
   'cleanup:run',
   'transcript:start',
@@ -187,6 +201,12 @@ export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
     'meeting:updateNote': (request) =>
       deps.meetings.updateNote(request.folder, request.noteId, request.text),
     'meeting:deleteNote': (request) => deps.meetings.deleteNote(request.folder, request.noteId),
+    'meeting:addTag': (request) => deps.meetings.addTag(request.folder, request.name),
+    'meeting:removeTag': (request) => deps.meetings.removeTag(request.folder, request.name),
+    'tags:list': () => deps.tags.list(),
+    'tags:create': (request) => deps.tags.create(request.name),
+    'tags:rename': (request) => deps.tags.rename(request.from, request.to),
+    'tags:delete': (request) => deps.tags.delete(request.name),
     'transcript:get': (request) => deps.transcript.get(request.folder),
     'transcript:start': (request) =>
       deps.transcript.start(request.folder, request.requestSummary, request.model),

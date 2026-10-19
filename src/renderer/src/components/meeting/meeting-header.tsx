@@ -1,6 +1,7 @@
 import { ChevronLeft, FolderOpen, LoaderCircle, Pencil, VideoOff } from 'lucide-react'
 import { useRef, useState, type FormEvent } from 'react'
 import { SourceIcon } from '@/components/meeting/source-icon'
+import { MeetingTags } from '@/components/tags/meeting-tags'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatDateTime, formatDuration } from '@/lib/format'
@@ -12,12 +13,20 @@ const MAX_NAME_LENGTH = 120
 interface MeetingHeaderProps {
   detail: MeetingDetail
   canRename: boolean
+  /** Motivo de a Reunião não aceitar Tags agora, ou `null`. */
+  tagsBlockedReason: string | null
   onRename: (name: string) => Promise<string | null>
   /** Ação "Apagar só o vídeo"; `blockedReason` desabilita o botão e explica o motivo. */
   deleteVideo: { blockedReason: string | null; onClick: () => void } | null
 }
 
-export function MeetingHeader({ detail, canRename, onRename, deleteVideo }: MeetingHeaderProps) {
+export function MeetingHeader({
+  detail,
+  canRename,
+  tagsBlockedReason,
+  onRename,
+  deleteVideo
+}: MeetingHeaderProps) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(detail.name)
   const [saving, setSaving] = useState(false)
@@ -97,6 +106,12 @@ export function MeetingHeader({ detail, canRename, onRename, deleteVideo }: Meet
             <h1 id="screen-title" className="truncate text-base font-semibold tracking-tight">
               {detail.name}
             </h1>
+            <MeetingTags
+              folder={detail.folder}
+              tags={detail.tags}
+              blockedReason={tagsBlockedReason}
+              className="ml-1"
+            />
             {canRename && (
               <Button
                 variant="ghost"

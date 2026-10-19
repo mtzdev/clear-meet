@@ -34,21 +34,32 @@ export function useLibraryQuery(query: LibraryQuery): LibraryQueryState {
   const latest = useRef(0)
 
   const { text, fromMs, toMs, sort, limit } = query
+  // A lista de Tags vira texto para a consulta só se repetir quando o filtro muda de verdade.
+  const tagsKey = query.tags.join('\u0000')
 
   useEffect(() => {
     const request = ++latest.current
-    window.api.invoke('library:search', { text, fromMs, toMs, sort, limit }).then(
-      (result) => {
-        if (request !== latest.current) return
-        setData(result)
-        setError(null)
-      },
-      (failure: unknown) => {
-        if (request !== latest.current) return
-        setError(failure instanceof Error ? failure.message : String(failure))
-      }
-    )
-  }, [text, fromMs, toMs, sort, limit, version])
+    window.api
+      .invoke('library:search', {
+        text,
+        tags: tagsKey === '' ? [] : tagsKey.split('\u0000'),
+        fromMs,
+        toMs,
+        sort,
+        limit
+      })
+      .then(
+        (result) => {
+          if (request !== latest.current) return
+          setData(result)
+          setError(null)
+        },
+        (failure: unknown) => {
+          if (request !== latest.current) return
+          setError(failure instanceof Error ? failure.message : String(failure))
+        }
+      )
+  }, [text, tagsKey, fromMs, toMs, sort, limit, version])
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined

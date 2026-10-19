@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildFtsQuery } from '@shared/search'
+import { tagKey } from '@shared/tags'
 import {
   hasFts5,
   IN_MEMORY,
@@ -47,7 +48,14 @@ function fragment(body: string, overrides: Partial<FragmentInput> = {}): Fragmen
 
 function search(db: LibraryDb, text: string): string[] {
   return db
-    .query({ fts: buildFtsQuery(text), fromMs: null, toMs: null, sort: 'newest', limit: 50 })
+    .query({
+      tagKeys: [],
+      fts: buildFtsQuery(text),
+      fromMs: null,
+      toMs: null,
+      sort: 'newest',
+      limit: 50
+    })
     .rows.map((meeting) => meeting.id)
 }
 
@@ -83,6 +91,18 @@ suite('esquema do índice', () => {
     expect(logs.join(' ')).toContain('descartado')
     db.upsert(row(), [])
     expect(db.count()).toBe(1)
+    db.close()
+  })
+
+  it('o índice da versão anterior (sem a tabela de Tags) é refeito', () => {
+    const path = join(dir, 'library.db')
+    const old = new sqlite.DatabaseSync(path)
+    old.exec('CREATE TABLE meetings (id TEXT); PRAGMA user_version = 2')
+    old.close()
+
+    const db = openLibraryDb(sqlite, path)
+    db.upsert(row(), [], ['Daily'])
+    expect(db.tagCounts()).toEqual([{ name: 'Daily', count: 1 }])
     db.close()
   })
 
@@ -151,6 +171,7 @@ suite('índice e busca', () => {
       fragment('marketing', { kind: 'name', offsetMs: null, speaker: null })
     ])
     const result = db.query({
+      tagKeys: [],
       fts: buildFtsQuery('marketing'),
       fromMs: null,
       toMs: null,
@@ -174,7 +195,7 @@ suite('índice e busca', () => {
     db.upsert(row({ id: 'd', folderName: 'd', createdMs: day('2026-10-11T00:00:00Z') }), [])
     const ids = (fromMs: number | null, toMs: number | null): string[] =>
       db
-        .query({ fts: null, fromMs, toMs, sort: 'oldest', limit: 10 })
+        .query({ tagKeys: [], fts: null, fromMs, toMs, sort: 'oldest', limit: 10 })
         .rows.map((meeting) => meeting.id)
     expect(ids(day('2026-10-10T00:00:00Z'), day('2026-10-11T00:00:00Z'))).toEqual(['b', 'c'])
     expect(ids(day('2026-10-10T00:00:00Z'), null)).toEqual(['b', 'c', 'd'])
@@ -187,7 +208,9 @@ suite('índice e busca', () => {
     db.upsert(row({ id: 'b', folderName: 'b', createdMs: 2, durationMs: null }), [])
     db.upsert(row({ id: 'c', folderName: 'c', createdMs: 3, durationMs: 90 }), [])
     const order = (sort: 'newest' | 'oldest' | 'longest' | 'relevance'): string[] =>
-      db.query({ fts: null, fromMs: null, toMs: null, sort, limit: 10 }).rows.map((r) => r.id)
+      db
+        .query({ tagKeys: [], fts: null, fromMs: null, toMs: null, sort, limit: 10 })
+        .rows.map((r) => r.id)
     expect(order('newest')).toEqual(['c', 'b', 'a'])
     expect(order('oldest')).toEqual(['a', 'b', 'c'])
     expect(order('longest')).toEqual(['c', 'a', 'b'])
@@ -198,7 +221,14 @@ suite('índice e busca', () => {
     for (const id of ['a', 'b', 'c']) {
       db.upsert(row({ id, folderName: id, createdMs: id.charCodeAt(0) }), [])
     }
-    const result = db.query({ fts: null, fromMs: null, toMs: null, sort: 'newest', limit: 2 })
+    const result = db.query({
+      tagKeys: [],
+      fts: null,
+      fromMs: null,
+      toMs: null,
+      sort: 'newest',
+      limit: 2
+    })
     expect(result.rows).toHaveLength(2)
     expect(result.total).toBe(3)
   })
@@ -229,6 +259,32 @@ suite('índice e busca', () => {
     db.upsert(row({ id: 'nova' }), [])
     expect(db.count()).toBe(1)
     expect(db.findByFolder('PASTA-A')?.id).toBe('nova')
+  })
+
+  it('filtra por Tags (qualquer uma) e conta as Reuniões de cada Tag', () => {
+    db.upsert(row({ id: 'a', folderName: 'a' }), [], ['Daily', 'Cliente'])
+    db.upsert(row({ id: 'b', folderName: 'b' }), [], ['daily'])
+    db.upsert(row({ id: 'c', folderName: 'c' }), [], [])
+    const ids = (tagKeys: string[]): string[] =>
+      db
+        .query({ tagKeys, fts: null, fromMs: null, toMs: null, sort: 'oldest', limit: 10 })
+        .rows.map((meeting) => meeting.id)
+        .sort()
+    expect(ids([])).toEqual(['a', 'b', 'c'])
+    expect(ids(['daily'])).toEqual(['a', 'b'])
+    expect(ids(['cliente', 'daily'])).toEqual(['a', 'b'])
+    expect(ids(['nenhuma'])).toEqual([])
+    const counts = Object.fromEntries(db.tagCounts().map((tag) => [tagKey(tag.name), tag.count]))
+    expect(counts).toEqual({ daily: 2, cliente: 1 })
+    expect(db.tagsFor(['a', 'c'])).toEqual(new Map([['a', ['Daily', 'Cliente']]]))
+  })
+
+  it('reindexar troca as Tags e remover a Reunião as apaga', () => {
+    db.upsert(row(), [], ['Daily'])
+    db.upsert(row({ signature: 'sig-2' }), [], ['Outra'])
+    expect(db.tagCounts()).toEqual([{ name: 'Outra', count: 1 }])
+    db.remove('pasta-a')
+    expect(db.tagCounts()).toEqual([])
   })
 
   it('pastas ignoradas ficam guardadas até mudarem', () => {

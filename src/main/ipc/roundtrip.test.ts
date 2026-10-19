@@ -92,7 +92,15 @@ function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
         Promise.resolve({ ok: false, error: { code: 'not-found', message: 'não existe' } }),
       updateNote: () =>
         Promise.resolve({ ok: false, error: { code: 'not-found', message: 'não existe' } }),
-      deleteNote: () => Promise.resolve(ok)
+      deleteNote: () => Promise.resolve(ok),
+      addTag: () => Promise.resolve({ ok: true, value: [] }),
+      removeTag: () => Promise.resolve({ ok: true, value: [] })
+    },
+    tags: {
+      list: () => Promise.resolve([]),
+      create: (name) => Promise.resolve({ ok: true, value: { name, count: 0 } }),
+      rename: (_from, to) => Promise.resolve({ ok: true, value: { name: to, updated: 0 } }),
+      delete: () => Promise.resolve({ ok: true, value: { updated: 0 } })
     },
     transcript: {
       get: () => Promise.resolve({ ok: true, value: null }),
@@ -265,13 +273,22 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
           deleteNote: (_folder, noteId) =>
             Promise.resolve(
               noteId === 'a' ? ok : { ok: false, error: { code: 'not-found', message: 'x' } }
-            )
+            ),
+          addTag: (_folder, name) => Promise.resolve({ ok: true, value: [name] }),
+          removeTag: () => Promise.resolve({ ok: true, value: [] })
+        },
+        tags: {
+          list: () => Promise.resolve([{ name: 'Daily', count: 2 }]),
+          create: (name) => Promise.resolve({ ok: true, value: { name, count: 0 } }),
+          rename: (_from, to) => Promise.resolve({ ok: true, value: { name: to, updated: 1 } }),
+          delete: () => Promise.resolve({ ok: true, value: { updated: 1 } })
         }
       })
     )
     expect(
       await api.invoke('library:search', {
         text: 'abc',
+        tags: [],
         fromMs: null,
         toMs: null,
         sort: 'newest',
@@ -279,6 +296,15 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
       })
     ).toEqual({ entries: [], total: 3, indexed: 3, skipped: 2, updating: false })
     expect(await api.invoke('library:refresh')).toBeNull()
+    expect(await api.invoke('meeting:addTag', { folder: 'f', name: 'Daily' })).toEqual({
+      ok: true,
+      value: ['Daily']
+    })
+    expect(await api.invoke('tags:list')).toEqual([{ name: 'Daily', count: 2 }])
+    expect(await api.invoke('tags:rename', { from: 'Daily', to: 'Diária' })).toEqual({
+      ok: true,
+      value: { name: 'Diária', updated: 1 }
+    })
     expect(await api.invoke('update:getState')).toMatchObject({ phase: 'unavailable' })
     expect(await api.invoke('update:restart')).toMatchObject({ ok: false })
     expect(await api.invoke('meeting:get', { id: 'abc' })).toEqual({

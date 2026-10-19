@@ -5,9 +5,12 @@ import { Screen } from '@/components/layout/screen'
 import { CleanupDialog } from '@/components/library/cleanup-dialog'
 import { LibraryFilters } from '@/components/library/filters'
 import { MeetingCard } from '@/components/library/meeting-card'
+import { TagFilter } from '@/components/library/tag-filter'
 import { Button } from '@/components/ui/button'
 import { dateRange, NO_DATE_FILTER, type DateFilter } from '@/lib/date-range'
 import { useDebounced, useLibraryQuery } from '@/lib/library'
+import { useTags } from '@/lib/tags'
+import { hasTag } from '@shared/tags'
 import type { LibraryQuery, LibrarySort } from '@shared/library'
 
 const SEARCH_DEBOUNCE_MS = 250
@@ -23,6 +26,8 @@ export function MeetingsScreen() {
   const [date, setDate] = useState<DateFilter>(NO_DATE_FILTER)
   const [sortChoice, setSortChoice] = useState<LibrarySort | null>(null)
   const [cleaning, setCleaning] = useState(false)
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const { tags } = useTags()
 
   // Pastas mexidas fora do app aparecem ao abrir a tela.
   useEffect(() => {
@@ -41,8 +46,22 @@ export function MeetingsScreen() {
     // O intervalo é calculado quando o filtro muda, não a cada renderização.
     [date]
   )
+  // Uma Tag apagada ou renomeada deixa de valer no filtro.
+  const activeTags = useMemo(
+    () =>
+      tags === null
+        ? selectedTags
+        : selectedTags.filter((name) =>
+            hasTag(
+              tags.map((t) => t.name),
+              name
+            )
+          ),
+    [tags, selectedTags]
+  )
   const query: LibraryQuery = {
     text: debouncedText,
+    tags: activeTags,
     fromMs: range.fromMs,
     toMs: range.toMs,
     sort,
@@ -51,10 +70,11 @@ export function MeetingsScreen() {
   const library = useLibraryQuery(query)
   const { data } = library
 
-  const filtered = searching || date.preset !== 'all'
+  const filtered = searching || date.preset !== 'all' || activeTags.length > 0
   const clearFilters = (): void => {
     setText('')
     setDate(NO_DATE_FILTER)
+    setSelectedTags([])
     setSortChoice(null)
   }
 
@@ -80,6 +100,11 @@ export function MeetingsScreen() {
             onSort={setSortChoice}
             searching={searching}
           />
+          {tags !== null && tags.length > 0 && (
+            <div className="mt-3">
+              <TagFilter tags={tags} selected={activeTags} onChange={setSelectedTags} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -123,7 +148,7 @@ export function MeetingsScreen() {
           <EmptyState
             icon={SearchX}
             title="Nenhuma Reunião encontrada"
-            description="Tente outras palavras ou mude o período."
+            description="Tente outras palavras, outras Tags ou mude o período."
             action={
               filtered ? (
                 <Button variant="outline" onClick={clearFilters}>

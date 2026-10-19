@@ -55,6 +55,8 @@ import { createBarWindow, createNoteWindow, readDisplays } from './floating/wind
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
 import { LibraryService } from './library/service'
+import { TagCatalog } from './tags/catalog'
+import { TagService } from './tags/service'
 import { loadSqlite } from './library/sqlite'
 import { createMediaHandler } from './media/handler'
 import { loadMeetingDetail } from './meetings/library'
@@ -429,6 +431,14 @@ if (!app.requestSingleInstanceLock()) {
       )
     }
 
+    const tags = new TagService({
+      catalog: new TagCatalog(join(app.getPath('userData'), 'tags.json')),
+      meetingsDir,
+      indexed: () => libraryIndex.tagCounts(),
+      refresh: (folder) => libraryIndex.refresh(folder),
+      emitChanged: () => sendToRenderer('library:changed', null)
+    })
+
     const cleanup = new CleanupService({
       olderThan: (cutoffMs) => libraryIndex.olderThan(cutoffMs),
       meetingsDir,
@@ -670,7 +680,15 @@ if (!app.requestSingleInstanceLock()) {
           updateNote: (folder, noteId, text) =>
             afterEdit(folder, editMeetingNote(meetingsDir(), folder, noteId, text)),
           deleteNote: (folder, noteId) =>
-            afterEdit(folder, deleteMeetingNote(meetingsDir(), folder, noteId))
+            afterEdit(folder, deleteMeetingNote(meetingsDir(), folder, noteId)),
+          addTag: (folder, name) => tags.add(folder, name),
+          removeTag: (folder, name) => tags.remove(folder, name)
+        },
+        tags: {
+          list: () => tags.list(),
+          create: (name) => tags.create(name),
+          rename: (from, to) => tags.rename(from, to),
+          delete: (name) => tags.delete(name)
         },
         transcript: {
           get: async (folder) => {

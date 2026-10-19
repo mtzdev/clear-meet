@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { hasAudioInput } from '@shared/audio-inputs'
 import { lockFor, type MeetingDetail } from '@shared/library'
-import { MEETING_FILES, type MeetingFile } from '@shared/meeting'
+import { MEETING_FILES, meetingTags, type MeetingFile } from '@shared/meeting'
 import type { RecordingError, Result } from '@shared/recording'
 import { makeSummaryView } from '@shared/summary'
 import { makeTranscriptView, type TranscriptProgress } from '@shared/transcript'
@@ -75,6 +75,7 @@ export async function loadMeetingDetail(
       hasAudioInput: hasAudioInput(meeting.inputs),
       videoAspect: videoAspect(meeting),
       notes: [...meeting.notes].sort((a, b) => a.offsetMs - b.offsetMs),
+      tags: meetingTags(meeting),
       issues: meeting.issues,
       lock: lockFor(meeting.status, live),
       transcript: makeTranscriptView(meeting.transcript, transcriptProgress(folder)),

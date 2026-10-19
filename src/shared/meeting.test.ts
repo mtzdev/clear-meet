@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MEETING_SCHEMA_VERSION,
+  meetingTags,
   needsRecovery,
   parseMeeting,
   parseMeetingText,
@@ -217,5 +218,48 @@ describe('needsRecovery', () => {
     expect(needsRecovery('recording')).toBe(true)
     expect(needsRecovery('processing')).toBe(true)
     expect(needsRecovery('unprocessed')).toBe(true)
+  })
+})
+
+describe('Tags no meeting.json', () => {
+  const base = {
+    schemaVersion: 1,
+    id: 'id-1',
+    name: 'Reunião',
+    createdAt: '2026-10-10T17:30:00.000Z',
+    endedAt: '2026-10-10T18:00:00.000Z',
+    durationMs: 60_000,
+    status: 'ready',
+    source: { kind: 'none', name: null },
+    quality: '1080p',
+    video: null,
+    audio: { file: 'audio.opus' },
+    inputs: { mic: true, systemAudio: true },
+    notes: [],
+    issues: []
+  }
+
+  it('um arquivo antigo, sem o campo, continua válido e sem Tags', () => {
+    const parsed = parseMeeting(base)
+    expect(parsed.ok && parsed.value.tags).toBeUndefined()
+    expect(parsed.ok && meetingTags(parsed.value)).toEqual([])
+  })
+
+  it('lê as Tags válidas e descarta repetidas e inválidas', () => {
+    const parsed = parseMeeting({ ...base, tags: ['Daily', 'daily', '', 7, 'Diária'] })
+    expect(parsed.ok && parsed.value.tags).toEqual(['Daily', 'Diária'])
+  })
+
+  it('mais de 3 Tags e nomes longos abrem sem perder nada', () => {
+    const tags = ['A', 'B', 'C', 'D', 'um nome bem maior que dezesseis']
+    const parsed = parseMeeting({ ...base, tags })
+    expect(parsed.ok && parsed.value.tags).toEqual(tags)
+  })
+
+  it('ida e volta pelo texto preserva as Tags', () => {
+    const parsed = parseMeeting({ ...base, tags: ['Daily'] })
+    if (!parsed.ok) throw new Error(parsed.error)
+    const again = parseMeetingText(serializeMeeting(parsed.value))
+    expect(again.ok && again.value.tags).toEqual(['Daily'])
   })
 })

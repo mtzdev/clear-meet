@@ -1,7 +1,7 @@
 {
   "name": "clearmeet",
   "productName": "ClearMeet",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "private": true,
   "description": "Grava reuniões e gera Transcrição, Resumo e Perguntas via IA.",
   "author": "Matheus",

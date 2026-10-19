@@ -2,6 +2,7 @@ import { NO_AUDIO_NOTICE } from '@shared/audio-inputs'
 import { CircleCheck, FolderOpen, NotebookText, ScrollText, TriangleAlert } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { WarningNotice } from '@/components/record/notices'
+import { MeetingTags } from '@/components/tags/meeting-tags'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -125,6 +126,13 @@ export function FinishedPanel({ finished }: { finished: FinishedRecording }) {
           Você pode trocar o nome depois. A pasta da Reunião acompanha o nome.
         </p>
       </div>
+
+      {finished.status === 'ready' && (
+        <div className="space-y-2">
+          <Label>Tags</Label>
+          <MeetingTags folder={finished.folder} tags={[]} blockedReason={null} />
+        </div>
+      )}
 
       {finished.status === 'ready' && !finished.hasAudioInput && (
         <p className="text-muted-foreground text-sm">{NO_AUDIO_NOTICE}</p>

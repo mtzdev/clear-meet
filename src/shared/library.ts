@@ -20,6 +20,7 @@ export interface MeetingListItem {
   /** Tamanho de todos os arquivos da pasta. */
   sizeBytes: number
   noteCount: number
+  tags: string[]
   transcriptStatus: TranscriptStatus
   summaryStatus: SummaryStatus
   /** `video.mp4` existe na pasta. */
@@ -36,9 +37,11 @@ export function isLibrarySort(value: unknown): value is LibrarySort {
   return typeof value === 'string' && (LIBRARY_SORTS as readonly string[]).includes(value)
 }
 
-/** Busca na Biblioteca: texto livre (nome e conteúdo), intervalo de datas e ordenação. */
+/** Busca na Biblioteca: texto livre (nome e conteúdo), Tags, intervalo de datas e ordenação. */
 export interface LibraryQuery {
   text: string
+  /** Reuniões com qualquer uma destas Tags (OU); vazio = sem filtro de Tag. */
+  tags: string[]
   /** Início (inclusive) e fim (exclusivo) em ms desde a época, sobre o início da gravação. */
   fromMs: number | null
   toMs: number | null
@@ -49,6 +52,7 @@ export interface LibraryQuery {
 
 export const DEFAULT_LIBRARY_QUERY: LibraryQuery = {
   text: '',
+  tags: [],
   fromMs: null,
   toMs: null,
   sort: 'newest',
@@ -61,8 +65,8 @@ export interface SnippetPart {
   match: boolean
 }
 
-export const HIT_KINDS = ['name', 'utterance', 'note', 'summary'] as const
-/** Onde a busca achou o termo: nome da Reunião, Fala da Transcrição, Anotação ou Resumo. */
+export const HIT_KINDS = ['name', 'tag', 'utterance', 'note', 'summary'] as const
+/** Onde a busca achou o termo: nome da Reunião, Tag, Fala da Transcrição, Anotação ou Resumo. */
 export type HitKind = (typeof HIT_KINDS)[number]
 
 export interface SearchHit {
@@ -173,13 +177,14 @@ export interface MeetingDetail {
   videoAspect: number | null
   /** Ordenadas por Instante. */
   notes: MeetingNote[]
+  tags: string[]
   issues: MeetingIssue[]
   lock: MeetingLock | null
   transcript: TranscriptView
   summary: SummaryView
 }
 
-export type ListAction = 'rename' | 'delete' | 'delete-video'
+export type ListAction = 'rename' | 'delete' | 'delete-video' | 'tag'
 
 /** Por que uma ação da lista (editar título, excluir) está bloqueada. */
 export type ListBlock = 'recording' | 'unfinished' | 'transcribing' | 'summarizing' | 'compacting'
@@ -202,9 +207,11 @@ type BlockInput = Pick<
  * segue o bloqueio de edição da tela da Reunião; excluir só barra o que o app está escrevendo
  * agora (uma Reunião interrompida ou com arquivos pendentes pode ser excluída). Apagar só o
  * Vídeo exige a Reunião pronta e o Vídeo fora de uso, mas não espera a IA, que lê só o áudio.
+ * Tags só exigem a Reunião pronta: o `meeting.json` é escrito em fila e nada é renomeado.
  * A Conversa em andamento só o main sabe: ele recusa o pedido com a mesma mensagem de "ocupada".
  */
 export function listBlock(item: BlockInput, action: ListAction): ListBlock | null {
+  if (action === 'tag') return lockFor(item.status, item.live)
   if (action === 'rename') {
     const lock = lockFor(item.status, item.live)
     if (lock) return lock

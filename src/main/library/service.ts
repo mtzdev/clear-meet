@@ -8,10 +8,11 @@ import {
   type MeetingListItem,
   type SearchHit
 } from '@shared/library'
-import { MEETING_FILE, MEETING_FILES, type MeetingNote } from '@shared/meeting'
+import { MEETING_FILE, MEETING_FILES, meetingTags, type MeetingNote } from '@shared/meeting'
 import { thumbnailUrl } from '@shared/media'
 import type { RecordingState } from '@shared/recording'
 import { buildFtsQuery, makeSnippet, searchTokens } from '@shared/search'
+import { tagKey, type TagInfo } from '@shared/tags'
 import type { SummaryChangedEvent } from '@shared/summary'
 import type { TranscriptChangedEvent } from '@shared/transcript'
 import type { FfmpegTools, RunProcess } from '../ffmpeg/media'
@@ -72,6 +73,7 @@ function finiteOrNull(value: unknown): number | null {
 /** O pedido vem da UI: confere a forma antes de consultar. */
 export function normalizeQuery(query: LibraryQuery): {
   text: string
+  tagKeys: string[]
   fromMs: number | null
   toMs: number | null
   sort: LibraryQuery['sort']
@@ -79,6 +81,9 @@ export function normalizeQuery(query: LibraryQuery): {
 } {
   return {
     text: typeof query.text === 'string' ? query.text.slice(0, 200) : '',
+    tagKeys: Array.isArray(query.tags)
+      ? [...new Set(query.tags.filter((tag) => typeof tag === 'string').map(tagKey))]
+      : [],
     fromMs: finiteOrNull(query.fromMs),
     toMs: finiteOrNull(query.toMs),
     sort: isLibrarySort(query.sort) ? query.sort : 'newest',
@@ -210,9 +215,11 @@ export class LibraryService {
       fts,
       fromMs: query.fromMs,
       toMs: query.toMs,
+      tagKeys: query.tagKeys,
       sort: query.sort,
       limit: query.limit
     })
+    const tags = db.tagsFor(rows.map((row) => row.id))
     const hits = fts
       ? db.hits(
           fts,
@@ -229,7 +236,7 @@ export class LibraryService {
         parts: makeSnippet(hit.body, tokens)
       }))
       return {
-        meeting: toItem(row, root, active),
+        meeting: toItem(row, root, active, tags.get(row.id) ?? []),
         hits: searchHits,
         hitCount: found?.total ?? 0
       }
@@ -253,10 +260,18 @@ export class LibraryService {
       fts: null,
       fromMs: null,
       toMs: cutoffMs,
+      tagKeys: [],
       sort: 'oldest',
       limit: Number.MAX_SAFE_INTEGER
     })
-    return rows.map((row) => toItem(row, root, active))
+    const tags = db.tagsFor(rows.map((row) => row.id))
+    return rows.map((row) => toItem(row, root, active, tags.get(row.id) ?? []))
+  }
+
+  /** Tags usadas pelas Reuniões do índice, com a contagem de cada uma. */
+  async tagCounts(): Promise<TagInfo[]> {
+    const db = await this.open()
+    return db ? db.tagCounts() : []
   }
 
   /**
@@ -417,7 +432,8 @@ export class LibraryService {
         meeting,
         transcript.ok ? transcript.value : null,
         summary.ok ? summary.value : null
-      )
+      ),
+      meetingTags(meeting)
     )
 
     if (!row.hasVideo) {
@@ -498,7 +514,12 @@ function jobFor(
   return { id, videoPath: join(root, folderName, MEETING_FILES.video), durationMs, videoSig }
 }
 
-function toItem(row: StoredMeeting, root: string, active: string | null): MeetingListItem {
+function toItem(
+  row: StoredMeeting,
+  root: string,
+  active: string | null,
+  tags: string[]
+): MeetingListItem {
   const folder = join(root, row.folderName)
   const hasThumbnail = row.hasVideo && row.thumbOk && row.thumbSig === row.videoSig
   return {
@@ -512,6 +533,7 @@ function toItem(row: StoredMeeting, root: string, active: string | null): Meetin
     source: { kind: row.sourceKind, name: row.sourceName },
     sizeBytes: row.sizeBytes,
     noteCount: row.noteCount,
+    tags,
     transcriptStatus: row.transcriptStatus,
     summaryStatus: row.summaryStatus,
     hasVideo: row.hasVideo,
