@@ -243,8 +243,8 @@ export class RecorderEngine {
     const mixTrack = destination.stream.getAudioTracks()[0]
     if (!mixTrack) throw new Error('O mix de áudio não gerou trilha')
 
-    // 4) Vídeo: canvas de tamanho fixo. Na resolução nativa o tamanho vem do primeiro quadro real.
-    if (params.hasVideo && sourceTrack && params.preset === 'native') {
+    // 4) Vídeo: canvas de tamanho fixo, a partir do tamanho do primeiro quadro real.
+    if (params.hasVideo && sourceTrack) {
       sourceSize = (await peekSourceSize(sourceTrack)) ?? sourceSize
     }
     const canvas = resolveCanvasSize(params.preset, sourceSize)

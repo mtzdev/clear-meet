@@ -1,7 +1,7 @@
 import type { Session, WebContents } from 'electron'
 
-/** Permissões que o app usa: microfone e captura de tela/áudio. Qualquer outra é negada. */
-const ALLOWED = new Set(['media', 'display-capture'])
+/** Permissões que o app usa: microfone, captura de tela/áudio e tela cheia (player). As demais são negadas. */
+const ALLOWED = new Set(['media', 'display-capture', 'fullscreen'])
 
 /**
  * Só as janelas do próprio app (UI e janela de gravação) podem usar microfone e captura;

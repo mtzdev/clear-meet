@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CompactionChangedEvent, CompactionMeta } from '@shared/compaction'
+import type { ContentArea } from '@shared/content-area'
 import { MEETING_SCHEMA_VERSION, type MeetingFile } from '@shared/meeting'
 import { IDLE_STATE } from '@shared/recording'
 import type { ProcessResult, RunProcess } from '../ffmpeg/media'
@@ -93,6 +94,7 @@ interface Options {
   maxReplaceAttempts?: number
   /** A codificação só termina quando o sinal de parada chega. */
   hang?: boolean
+  area?: ContentArea | null
 }
 
 function setup(options: Options = {}) {
@@ -100,6 +102,7 @@ function setup(options: Options = {}) {
   const events: CompactionChangedEvent[] = []
   const changed: string[] = []
   const encodes: Av1Encoder[] = []
+  const argLines: string[][] = []
   let started: (() => void) | null = null
   const whenStarted = new Promise<void>((resolve) => {
     started = resolve
@@ -119,6 +122,7 @@ function setup(options: Options = {}) {
   const runCompression: RunCompression = async (_file, args, opts) => {
     const encoder = args[args.indexOf('-c:v') + 1] as Av1Encoder
     encodes.push(encoder)
+    argLines.push(args)
     started?.()
     if (options.hang) {
       await new Promise<void>((resolve) => {
@@ -143,6 +147,7 @@ function setup(options: Options = {}) {
     mode: () => 'speed',
     canRun: () => state.canRun,
     detector: { get: () => Promise.resolve(options.encoder ?? 'libsvtav1') },
+    contentArea: { get: () => Promise.resolve(options.area ?? null) },
     emit: (event) => events.push(event),
     onFolderChanged: (folder) => changed.push(folder),
     run,
@@ -153,7 +158,7 @@ function setup(options: Options = {}) {
     now: () => Date.parse('2026-10-16T12:00:00.000Z'),
     log: () => undefined
   })
-  return { service, state, events, changed, encodes, whenStarted }
+  return { service, state, events, changed, encodes, argLines, whenStarted }
 }
 
 async function metaOf(folder: string): Promise<CompactionMeta | undefined> {
@@ -199,6 +204,24 @@ describe('CompactionService', () => {
     expect(changed).toContain(folder)
     const read = await readMeeting(folder)
     expect(read.ok && read.value.notes).toHaveLength(1)
+  })
+
+  it('com faixas pretas detectadas, codifica só a área útil', async () => {
+    const folder = await createMeeting('a')
+    const area = { x: 276, y: 154, width: 1368, height: 772, frameWidth: 1920, frameHeight: 1080 }
+    const { service, argLines } = setup({ area })
+    await service.enqueueFolder(folder)
+    await service.idle()
+    const args = argLines[0] as string[]
+    expect(args[args.indexOf('-vf') + 1]).toBe('crop=1368:772:276:154')
+  })
+
+  it('sem área detectada, codifica o quadro inteiro', async () => {
+    const folder = await createMeeting('a')
+    const { service, argLines } = setup()
+    await service.enqueueFolder(folder)
+    await service.idle()
+    expect(argLines[0]).not.toContain('-vf')
   })
 
   it('regra "manter o menor": se não ficou menor, o original fica e o temporário é descartado', async () => {

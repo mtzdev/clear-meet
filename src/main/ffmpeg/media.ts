@@ -18,7 +18,7 @@ export interface ProcessResult {
 export type RunProcess = (
   file: string,
   args: string[],
-  options?: { timeoutMs?: number }
+  options?: { timeoutMs?: number; signal?: AbortSignal }
 ) => Promise<ProcessResult>
 
 const DEFAULT_TIMEOUT_MS = 10 * 60_000
@@ -31,6 +31,7 @@ export const runProcess: RunProcess = (file, args, options = {}) =>
       {
         windowsHide: true,
         timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        signal: options.signal,
         maxBuffer: 32 * 1024 * 1024,
         encoding: 'utf8'
       },

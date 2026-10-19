@@ -1,4 +1,4 @@
-import { useRef, type PointerEvent } from 'react'
+import { useRef, useState, type PointerEvent } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePlayerValue, type PlayerController } from '@/lib/player-controller'
 import type { MeetingNote } from '@shared/meeting'
@@ -14,6 +14,7 @@ export function Timeline({ controller, notes }: TimelineProps) {
   const durationMs = usePlayerValue(controller, (snapshot) => snapshot.durationMs)
   const trackRef = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
+  const [hover, setHover] = useState<{ ms: number; x: number } | null>(null)
 
   const seekTo = (clientX: number): void => {
     const rect = trackRef.current?.getBoundingClientRect()
@@ -28,6 +29,11 @@ export function Timeline({ controller, notes }: TimelineProps) {
     seekTo(event.clientX)
   }
   const onPointerMove = (event: PointerEvent<HTMLDivElement>): void => {
+    const rect = trackRef.current?.getBoundingClientRect()
+    if (rect && rect.width > 0) {
+      const offset = Math.min(rect.width, Math.max(0, event.clientX - rect.left))
+      setHover({ ms: instantAtPosition(offset / rect.width, durationMs), x: offset })
+    }
     if (dragging.current) seekTo(event.clientX)
   }
   const stopDragging = (): void => {
@@ -51,7 +57,17 @@ export function Timeline({ controller, notes }: TimelineProps) {
       onPointerMove={onPointerMove}
       onPointerUp={stopDragging}
       onPointerCancel={stopDragging}
+      onPointerLeave={() => setHover(null)}
     >
+      {hover && (
+        <div
+          aria-hidden
+          className="bg-foreground text-background pointer-events-none absolute bottom-full z-10 mb-0.5 -translate-x-1/2 rounded px-1.5 py-0.5 text-xs tabular-nums"
+          style={{ left: `clamp(1.5rem, ${hover.x}px, calc(100% - 1.5rem))` }}
+        >
+          {formatInstant(hover.ms)}
+        </div>
+      )}
       <div className="bg-muted absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full">
         <div className="bg-primary h-full" style={{ width: `${played * 100}%` }} />
       </div>

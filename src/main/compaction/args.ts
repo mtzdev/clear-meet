@@ -1,4 +1,5 @@
 import type { CompactionMode } from '@shared/compaction'
+import { cropFilter, type Rect } from '@shared/content-area'
 import type { Av1Encoder } from './encoders'
 
 export interface CompactionArgsInput {
@@ -8,6 +9,8 @@ export interface CompactionArgsInput {
   mode: CompactionMode
   /** O original tem trilha de áudio; sem ela, nada é mapeado nem recodificado. */
   hasAudio: boolean
+  /** Área útil: o vídeo sai só com ela, sem as faixas pretas. */
+  crop?: Rect | null
 }
 
 /** Parâmetros do vídeo por encoder e modo. O software tem `scm=1` (ferramentas de conteúdo de tela). */
@@ -93,6 +96,7 @@ export function buildCompactionArgs(input: CompactionArgsInput): string[] {
     '-map',
     '0:v:0',
     ...(input.hasAudio ? ['-map', '0:a:0'] : []),
+    ...(input.crop ? ['-vf', cropFilter(input.crop)] : []),
     ...videoArgs(input.encoder, input.mode),
     '-fps_mode',
     'passthrough'

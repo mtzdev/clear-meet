@@ -7,6 +7,7 @@ import {
   type CompactionMode,
   type ListCompaction
 } from '@shared/compaction'
+import type { ContentArea } from '@shared/content-area'
 import { MEETING_FILES } from '@shared/meeting'
 import type { RecordingError, RecordingState, Result } from '@shared/recording'
 import {
@@ -38,6 +39,8 @@ export interface CompactionDeps {
   /** Falso enquanto outra coisa pesada (a gravação) precisa da máquina; `kick()` retoma. */
   canRun(): boolean
   detector: { get(tools: FfmpegTools): Promise<Av1Encoder | null> }
+  /** Área útil do Vídeo (sem faixas pretas); sem ela, o quadro inteiro é codificado. */
+  contentArea?: { get(folder: string): Promise<ContentArea | null> }
   emit(event: CompactionChangedEvent): void
   /** A pasta mudou no disco: o índice deve relê-la. */
   onFolderChanged(folder: string): void
@@ -365,12 +368,14 @@ export class CompactionService {
     encoder: Av1Encoder
   ): Promise<'paused' | { ok: true } | { ok: false; reason: string }> {
     const { job, folder, controller } = running
+    const crop = await this.deps.contentArea?.get(folder).catch(() => null)
     const args = buildCompactionArgs({
       input: join(folder, MEETING_FILES.video),
       output: temp,
       encoder,
       mode: this.deps.mode(),
-      hasAudio: original.streams.some((stream) => stream.type === 'audio')
+      hasAudio: original.streams.some((stream) => stream.type === 'audio'),
+      crop
     })
     const result = await (this.deps.runCompression ?? runCompression)(tools.ffmpegPath, args, {
       signal: controller.signal,

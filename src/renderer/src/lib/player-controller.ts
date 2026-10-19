@@ -1,7 +1,6 @@
 import { useSyncExternalStore } from 'react'
-import { clampInstant, seekBy, timelineDurationMs } from '@shared/timeline'
-
-export const PLAYBACK_RATES = [1, 1.25, 1.5, 2] as const
+import { clampInstant, FRAME_STEP_MS, seekBy, timelineDurationMs } from '@shared/timeline'
+import { DEFAULT_PREFS, type PlayerPrefs } from './player-prefs'
 
 export interface PlayerSnapshot {
   currentMs: number
@@ -10,6 +9,11 @@ export interface PlayerSnapshot {
   paused: boolean
   rate: number
   muted: boolean
+  /** Último volume audível (0 a 1); com o som cortado continua o valor de antes. */
+  volume: number
+  /** Tamanho do quadro do vídeo (0 até os metadados carregarem). */
+  videoWidth: number
+  videoHeight: number
   error: string | null
 }
 
@@ -27,6 +31,7 @@ const EVENTS = [
   'ended',
   'ratechange',
   'volumechange',
+  'resize',
   'error'
 ] as const
 
@@ -43,16 +48,26 @@ export class PlayerController {
   private resumePlaying = false
   private frame = 0
   private lastFrameAt = 0
-  private rate = 1
+  private rate: number
+  private volume: number
   private muted = false
 
-  constructor(private readonly fallbackDurationMs: number | null) {
+  constructor(
+    private readonly fallbackDurationMs: number | null,
+    prefs: PlayerPrefs = DEFAULT_PREFS,
+    private readonly onPrefsChange?: (prefs: PlayerPrefs) => void
+  ) {
+    this.rate = prefs.rate
+    this.volume = prefs.volume
     this.snapshot = {
       currentMs: 0,
       durationMs: timelineDurationMs(Number.NaN, fallbackDurationMs),
       paused: true,
-      rate: 1,
+      rate: this.rate,
       muted: false,
+      volume: this.volume,
+      videoWidth: 0,
+      videoHeight: 0,
       error: null
     }
   }
@@ -83,6 +98,7 @@ export class PlayerController {
     this.element = element
     if (!element) return
     for (const name of EVENTS) element.addEventListener(name, this.onEvent)
+    this.applyOutput(element)
     this.sync()
   }
 
@@ -112,8 +128,7 @@ export class PlayerController {
 
   /** Metadados carregados: aplica o seek pedido antes, a velocidade e o mudo. */
   private applyAfterLoad(element: HTMLMediaElement): void {
-    element.playbackRate = this.rate
-    element.muted = this.muted
+    this.applyOutput(element)
     if (this.pendingSeekMs !== null) {
       element.currentTime = clampInstant(this.pendingSeekMs, this.durationMs()) / 1000
       this.pendingSeekMs = null
@@ -123,6 +138,12 @@ export class PlayerController {
       void element.play().catch(() => undefined)
     }
     this.publish({ error: null })
+  }
+
+  private applyOutput(element: HTMLMediaElement): void {
+    element.playbackRate = this.rate
+    element.volume = this.volume
+    element.muted = this.muted
   }
 
   private durationMs(): number {
@@ -140,7 +161,10 @@ export class PlayerController {
       durationMs: this.durationMs(),
       paused: element.paused,
       rate: element.playbackRate,
-      muted: element.muted
+      muted: element.muted,
+      volume: this.volume,
+      videoWidth: element instanceof HTMLVideoElement ? element.videoWidth : 0,
+      videoHeight: element instanceof HTMLVideoElement ? element.videoHeight : 0
     })
   }
 
@@ -185,15 +209,39 @@ export class PlayerController {
     else element.pause()
   }
 
+  /** Quadro a quadro (só com o vídeo pausado): avança ou recua ~1/30 s. */
+  stepFrame(direction: 1 | -1): void {
+    if (!this.snapshot.paused) return
+    this.seekToMs(this.snapshot.currentMs + direction * FRAME_STEP_MS)
+  }
+
+  private prefs(): PlayerPrefs {
+    return { volume: this.volume, rate: this.rate }
+  }
+
   setRate(rate: number): void {
     this.rate = rate
     if (this.element) this.element.playbackRate = rate
+    this.onPrefsChange?.(this.prefs())
     this.sync()
   }
 
   toggleMuted(): void {
     this.muted = !this.muted
     if (this.element) this.element.muted = this.muted
+    this.sync()
+  }
+
+  /** Zero corta o som (o volume de antes volta ao reativar); acima de zero reativa. */
+  setVolume(volume: number): void {
+    const value = Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : 1
+    if (value > 0) this.volume = value
+    this.muted = value === 0
+    if (this.element) {
+      this.element.volume = this.volume
+      this.element.muted = this.muted
+    }
+    this.onPrefsChange?.(this.prefs())
     this.sync()
   }
 

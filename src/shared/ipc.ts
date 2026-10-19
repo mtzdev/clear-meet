@@ -2,6 +2,7 @@ import type { AiProvider, AiStatus, KeyTestResult } from './ai'
 import type { ChatEvent, ChatSent, ChatState } from './chat'
 import type { CleanupPreview, CleanupRequest, CleanupResult } from './cleanup'
 import type { CompactionChangedEvent } from './compaction'
+import type { ContentArea } from './content-area'
 import type { FfmpegInstallState, FfmpegStatus } from './ffmpeg'
 import type { FloatingInfo, NoteSavedEvent } from './floating'
 import type { LibraryQuery, LibraryResult, MeetingDetail } from './library'
@@ -59,6 +60,11 @@ export interface IpcContract {
   'meeting:delete': { request: { folder: string }; response: Result<null> }
   /** Manda só o Vídeo para a Lixeira; a Reunião continua navegável pelo Áudio da reunião. */
   'meeting:deleteVideo': { request: { folder: string }; response: Result<{ freedBytes: number }> }
+  /**
+   * Área útil do Vídeo (sem as faixas pretas gravadas), medida em segundo plano e guardada em
+   * cache; `null` se não há faixas, a medida não é confiável ou ainda não pode ser feita.
+   */
+  'video:contentArea': { request: { folder: string }; response: ContentArea | null }
   /** Tenta de novo a Compactação de uma Reunião cuja última tentativa falhou. */
   'compaction:retry': { request: { folder: string }; response: Result<null> }
   /** Quantas Reuniões e quanto espaço a Limpeza liberaria com este filtro (calculado nos arquivos). */
@@ -221,6 +227,7 @@ export const IPC_CHANNELS = {
   'meeting:delete': true,
   'meeting:deleteVideo': true,
   'compaction:retry': true,
+  'video:contentArea': true,
   'cleanup:preview': true,
   'cleanup:run': true,
   'library:notes': true,

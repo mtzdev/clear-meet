@@ -81,7 +81,8 @@ describe('contrato de IPC', () => {
       'transcript:renameSpeaker',
       'transcript:start',
       'update:getState',
-      'update:restart'
+      'update:restart',
+      'video:contentArea'
     ])
   })
 

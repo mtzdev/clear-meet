@@ -1,6 +1,7 @@
 import type { AiProvider, AiStatus, KeyTestResult } from '@shared/ai'
 import type { ChatSent, ChatState } from '@shared/chat'
 import type { CleanupPreview, CleanupRequest, CleanupResult } from '@shared/cleanup'
+import type { ContentArea } from '@shared/content-area'
 import type { FfmpegInstallState, FfmpegStatus } from '@shared/ffmpeg'
 import type { FloatingInfo } from '@shared/floating'
 import type { IpcChannel, IpcHandlers } from '@shared/ipc'
@@ -45,6 +46,7 @@ export interface HandlerDeps {
   deleteMeeting(folder: string): Promise<Result<null>>
   deleteMeetingVideo(folder: string): Promise<Result<{ freedBytes: number }>>
   retryCompaction(folder: string): Promise<Result<null>>
+  contentArea(folder: string): Promise<ContentArea | null>
   cleanup: {
     preview(request: CleanupRequest): Promise<Result<CleanupPreview>>
     run(request: CleanupRequest): Promise<Result<CleanupResult>>
@@ -169,6 +171,8 @@ export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
     'meeting:delete': (request) => deps.deleteMeeting(request.folder),
     'meeting:deleteVideo': (request) => deps.deleteMeetingVideo(request.folder),
     'compaction:retry': (request) => deps.retryCompaction(request.folder),
+    'video:contentArea': (request) =>
+      typeof request.folder === 'string' ? deps.contentArea(request.folder) : null,
     'cleanup:preview': (request) => deps.cleanup.preview(request),
     'cleanup:run': (request) => deps.cleanup.run(request),
     'library:search': (request) => deps.library.search(request),

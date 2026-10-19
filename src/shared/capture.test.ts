@@ -10,16 +10,37 @@ import {
 } from './capture'
 
 describe('resolveCanvasSize', () => {
-  it('presets têm tamanho fixo, qualquer que seja a fonte', () => {
-    expect(resolveCanvasSize('720p', { width: 3840, height: 2160 })).toEqual({
+  it('presets encaixam a fonte sem ampliar e sem faixas pretas', () => {
+    const size = (preset: '720p' | '1080p', width: number, height: number) =>
+      resolveCanvasSize(preset, { width, height })
+    expect(size('1080p', 1366, 768)).toEqual({ width: 1366, height: 768 })
+    expect(size('1080p', 800, 600)).toEqual({ width: 800, height: 600 })
+    expect(size('1080p', 2560, 1440)).toEqual({ width: 1920, height: 1080 })
+    expect(size('720p', 3840, 2160)).toEqual({ width: 1280, height: 720 })
+    expect(size('720p', 1920, 1080)).toEqual({ width: 1280, height: 720 })
+    expect(size('1080p', 2560, 1080)).toEqual({ width: 1920, height: 810 })
+  })
+
+  it('o canvas é par e mantém a proporção da fonte', () => {
+    for (const [w, h] of [
+      [1365, 767],
+      [1921, 1033],
+      [999, 701]
+    ] as const) {
+      const canvas = resolveCanvasSize('1080p', { width: w, height: h })
+      expect(canvas.width % 2).toBe(0)
+      expect(canvas.height % 2).toBe(0)
+      expect(canvas.width).toBeLessThanOrEqual(1920)
+      expect(canvas.width / canvas.height).toBeCloseTo(w / h, 1)
+    }
+  })
+
+  it('sem tamanho da fonte, o canvas é o do preset', () => {
+    expect(resolveCanvasSize('1080p', null)).toEqual({ width: 1920, height: 1080 })
+    expect(resolveCanvasSize('720p', { width: 0, height: 0 })).toEqual({
       width: 1280,
       height: 720
     })
-    expect(resolveCanvasSize('1080p', { width: 640, height: 480 })).toEqual({
-      width: 1920,
-      height: 1080
-    })
-    expect(resolveCanvasSize('1080p', null)).toEqual({ width: 1920, height: 1080 })
   })
 
   it('nativa usa o tamanho da fonte, par', () => {
@@ -138,11 +159,17 @@ describe('videoBitrate', () => {
     expect(videoBitrate('720p', sd, false)).toBe(1_000_000)
   })
 
-  it('nativa escala com os pixels e fica entre 1 e 12 Mbps', () => {
+  it('escala com a área do canvas e fica entre 1 e 12 Mbps', () => {
     expect(videoBitrate('native', hd, true)).toBe(4_000_000)
     expect(videoBitrate('native', { width: 3840, height: 2160 }, true)).toBe(12_000_000)
     expect(videoBitrate('native', { width: 3840, height: 2160 }, false)).toBe(8_000_000)
     expect(videoBitrate('native', { width: 640, height: 360 }, false)).toBe(1_000_000)
+  })
+
+  it('canvas menor que o do preset reduz o bitrate na proporção da área', () => {
+    expect(videoBitrate('1080p', { width: 1366, height: 768 }, true)).toBe(2_000_000)
+    expect(videoBitrate('720p', { width: 960, height: 540 }, true)).toBe(1_100_000)
+    expect(videoBitrate('1080p', { width: 640, height: 480 }, true)).toBe(1_000_000)
   })
 })
 

@@ -69,6 +69,7 @@ function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
     deleteMeeting: () => Promise.resolve(ok),
     deleteMeetingVideo: () => Promise.resolve({ ok: true, value: { freedBytes: 10 } }),
     retryCompaction: () => Promise.resolve(ok),
+    contentArea: () => Promise.resolve(null),
     cleanup: {
       preview: () =>
         Promise.resolve({ ok: true, value: { count: 1, bytes: 5, skipped: 0, oldestDays: null } }),

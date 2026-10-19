@@ -14,13 +14,15 @@ import { TranscriptTab } from '@/components/meeting/transcript-tab'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { issueText, LOCK_TEXT } from '@/lib/meeting-text'
+import { useContentArea } from '@/lib/content-area'
 import { useMeetingDetail } from '@/lib/meetings'
 import { PlayerController } from '@/lib/player-controller'
+import { loadPositions, loadPrefs, resumeInstant, savePrefs } from '@/lib/player-prefs'
 import { useRecordingState } from '@/lib/recording'
 import { useMeetingId, useMeetingStart } from '@/lib/router'
 import { useSummaryView } from '@/lib/summary'
 import { useTranscriptView } from '@/lib/transcript'
-import { usePlayerShortcuts } from '@/lib/use-player-shortcuts'
+import { usePlaybackMemory } from '@/lib/use-playback-memory'
 import { NO_AUDIO_NOTICE } from '@shared/audio-inputs'
 import { LIST_BLOCK_TEXT, type MeetingDetail } from '@shared/library'
 import { mediaUrl } from '@shared/media'
@@ -129,15 +131,18 @@ function MeetingView({
   updateNotes: (update: (notes: MeetingDetail['notes']) => MeetingDetail['notes']) => void
 }) {
   const [controller] = useState(() => {
-    const created = new PlayerController(detail.durationMs)
-    // O pedido de seek fica guardado até o arquivo carregar.
-    if (startMs !== null) created.seekToMs(startMs)
+    const created = new PlayerController(detail.durationMs, loadPrefs(), savePrefs)
+    // Instante pedido na rota; sem ele, retoma de onde a Reunião parou. O seek fica guardado
+    // até o arquivo carregar.
+    const initial = startMs ?? resumeInstant(loadPositions(), detail.id, detail.durationMs)
+    if (initial !== null) created.seekToMs(initial)
     return created
   })
   const [suspended, setSuspended] = useState(false)
   const [folderNotice, setFolderNotice] = useState(false)
   const [confirmingVideoDelete, setConfirmingVideoDelete] = useState(false)
-  usePlayerShortcuts(controller, true)
+  usePlaybackMemory(controller, detail.id)
+  const contentArea = useContentArea(detail.folder, detail.hasVideoFile, detail.compactionStatus)
 
   const locked = detail.lock !== null
   const transcript = useTranscriptView(detail.id, detail.transcript)
@@ -202,6 +207,7 @@ function MeetingView({
           media={pickMedia(detail, suspended)}
           notes={detail.notes}
           audioOnlyText={playerText(detail)}
+          contentArea={contentArea}
         />
       </div>
       {detail.issues.length > 0 && (

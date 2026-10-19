@@ -39,6 +39,7 @@ import { TranscriptionService } from './ai/transcription/service'
 import { CleanupService } from './cleanup/service'
 import { Av1EncoderDetector } from './compaction/encoders'
 import { CompactionService } from './compaction/service'
+import { ContentAreaService } from './content-area/service'
 import { getFfmpegStatus, type StatusOptions } from './ffmpeg'
 import { FfmpegInstaller } from './ffmpeg/installer'
 import { resolveFfmpegTools } from './ffmpeg/media'
@@ -275,6 +276,13 @@ if (!app.requestSingleInstanceLock()) {
 
     // Em automação de desenvolvimento o Vídeo gravado fica como saiu do gravador.
     const automation = !app.isPackaged && Boolean(process.env['CLEARMEET_AUTOMATION'])
+    const contentArea = new ContentAreaService({
+      meetingsDir,
+      cacheDir: join(app.getPath('userData'), 'content-area'),
+      getTools,
+      canRun: () => !service.isBusy() && relocation?.isRunning !== true,
+      log
+    })
     const compactor = new CompactionService({
       meetingsDir,
       getTools,
@@ -283,6 +291,7 @@ if (!app.requestSingleInstanceLock()) {
       // Como as miniaturas, a Compactação espera a gravação terminar (e a troca de pasta).
       canRun: () => !service.isBusy() && relocation?.isRunning !== true,
       detector: new Av1EncoderDetector(),
+      contentArea,
       emit: (event) => sendToRenderer('compaction:changed', event),
       onFolderChanged: (folder) => void libraryIndex.refresh(folder),
       now: () => Date.now(),
@@ -492,6 +501,7 @@ if (!app.requestSingleInstanceLock()) {
         return null
       },
       pause: async () => {
+        await contentArea.release()
         await compactor.pause()
         await libraryIndex.pause()
       },
@@ -524,6 +534,7 @@ if (!app.requestSingleInstanceLock()) {
         preflight,
         recording: service,
         renameMeeting: async (folder, name) => {
+          await contentArea.release()
           if (transcription.isActive(folder)) {
             return {
               ok: false,
@@ -571,6 +582,7 @@ if (!app.requestSingleInstanceLock()) {
               error: { code: 'invalid-request', message: 'Pedido inválido.' }
             }
           }
+          await contentArea.release()
           if (isFolderBusy(folder)) {
             return {
               ok: false,
@@ -590,6 +602,7 @@ if (!app.requestSingleInstanceLock()) {
           return result
         },
         deleteMeetingVideo: async (folder) => {
+          await contentArea.release()
           if (typeof folder === 'string' && isFolderBusy(folder)) {
             return {
               ok: false,
@@ -606,6 +619,7 @@ if (!app.requestSingleInstanceLock()) {
           return result
         },
         retryCompaction: (folder) => compactor.retry(folder),
+        contentArea: (folder) => contentArea.get(folder),
         cleanup: {
           preview: (request) => {
             const parsed = parseCleanupRequest(request)
@@ -821,6 +835,7 @@ if (!app.requestSingleInstanceLock()) {
     app.on('will-quit', () => {
       updater.stop()
       compactor.abortAll()
+      void contentArea.release()
       globalShortcut.unregisterAll()
       void libraryIndex.close()
     })

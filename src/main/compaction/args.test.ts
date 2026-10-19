@@ -36,6 +36,15 @@ describe('buildCompactionArgs', () => {
     expect(pair(args, '-i')).toBe('in.mp4')
   })
 
+  it('com área útil, corta as faixas pretas antes de codificar', () => {
+    const crop = { x: 276, y: 154, width: 1368, height: 772 }
+    const args = buildCompactionArgs({ ...base, encoder: 'libsvtav1', mode: 'speed', crop })
+    expect(pair(args, '-vf')).toBe('crop=1368:772:276:154')
+    expect(args.indexOf('-vf')).toBeLessThan(args.indexOf('-c:v'))
+    const without = buildCompactionArgs({ ...base, encoder: 'libsvtav1', mode: 'speed' })
+    expect(without).not.toContain('-vf')
+  })
+
   it('pede o andamento por -progress e não espera entrada do teclado', () => {
     const args = buildCompactionArgs({ ...base, encoder: 'libsvtav1', mode: 'speed' })
     expect(pair(args, '-progress')).toBe('pipe:1')

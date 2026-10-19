@@ -47,14 +47,17 @@ function evenFloor(value: number): number {
 }
 
 /**
- * Tamanho do canvas, e portanto do MP4, que não muda durante a gravação.
- * - 720p / 1080p: o tamanho do preset, sempre (a fonte é encaixada dentro dele).
- * - nativa: o tamanho da fonte no início, par (exigência do H.264) e limitado a `NATIVE_MAX`.
+ * Tamanho do canvas, e portanto do MP4, que não muda durante a gravação. Sempre par
+ * (exigência do H.264) e nunca maior que a fonte: não nascem faixas pretas gravadas.
+ * - 720p / 1080p: a fonte encaixada no preset sem ampliar (1366x768 + 1080p = 1366x768;
+ *   2560x1440 + 1080p = 1920x1080). Sem tamanho da fonte, o do preset.
+ * - nativa: o tamanho da fonte, limitado a `NATIVE_MAX`.
  */
 export function resolveCanvasSize(preset: QualityPreset, source: Size | null): Size {
-  if (preset !== 'native') return PRESET_SIZES[preset]
-  if (!source || !(source.width > 0) || !(source.height > 0)) return PRESET_SIZES['1080p']
-  const shrink = Math.min(1, NATIVE_MAX.width / source.width, NATIVE_MAX.height / source.height)
+  const known = source !== null && source.width > 0 && source.height > 0
+  if (!known) return preset === 'native' ? PRESET_SIZES['1080p'] : PRESET_SIZES[preset]
+  const limit = preset === 'native' ? NATIVE_MAX : PRESET_SIZES[preset]
+  const shrink = Math.min(1, limit.width / source.width, limit.height / source.height)
   return {
     width: Math.max(MIN_DIMENSION, evenFloor(source.width * shrink)),
     height: Math.max(MIN_DIMENSION, evenFloor(source.height * shrink))
@@ -93,24 +96,26 @@ export function computeFit(source: Size, canvas: Size): Fit {
   }
 }
 
-/** Bitrate de referência em 1080p (bits/s), por modo de Compactação. */
+/** Bitrate de referência (bits/s) com o canvas do tamanho do preset, por modo de Compactação. */
 const BITRATE_1080P = { compaction: 4_000_000, plain: 2_000_000 } as const
 const BITRATE_720P = { compaction: 2_000_000, plain: 1_000_000 } as const
+const PIXELS_1080P = 1920 * 1080
+const PIXELS_720P = 1280 * 720
 const BITRATE_MAX = 12_000_000
 const BITRATE_MIN = 1_000_000
 
 /**
  * Teto de bitrate do Vídeo ao vivo (o encoder de hardware usa só uma parte dele).
  * Com Compactação ligada grava com folga (o AV1 só reduz bem se o H.264 de entrada
- * tem qualidade sobrando); desligada, moderado. Na resolução nativa escala com o
- * número de pixels em relação a 1080p, entre 1 e 12 Mbps.
+ * tem qualidade sobrando); desligada, moderado. Escala com a área do canvas em relação
+ * à do preset (a nativa tem como referência o 1080p), entre 1 e 12 Mbps.
  */
 export function videoBitrate(preset: QualityPreset, canvas: Size, compaction: boolean): number {
   const mode = compaction ? 'compaction' : 'plain'
-  if (preset === '720p') return BITRATE_720P[mode]
-  if (preset === '1080p') return BITRATE_1080P[mode]
-  const pixels = (canvas.width * canvas.height) / (1920 * 1080)
-  const scaled = Math.round((BITRATE_1080P[mode] * pixels) / 100_000) * 100_000
+  const reference = preset === '720p' ? BITRATE_720P[mode] : BITRATE_1080P[mode]
+  const referencePixels = preset === '720p' ? PIXELS_720P : PIXELS_1080P
+  const ratio = (canvas.width * canvas.height) / referencePixels
+  const scaled = Math.round((reference * ratio) / 100_000) * 100_000
   return Math.min(BITRATE_MAX, Math.max(BITRATE_MIN, scaled))
 }
 

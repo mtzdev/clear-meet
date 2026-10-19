@@ -5,6 +5,12 @@ import type { MeetingNote } from './meeting'
 /** Salto das teclas ← e → (ms). */
 export const SEEK_STEP_MS = 5000
 
+/** Salto longo (Shift + seta, J e L) (ms). */
+export const LONG_SEEK_STEP_MS = 15000
+
+/** Passo de quadro a quadro com o vídeo pausado (ms): ~1/30 s. */
+export const FRAME_STEP_MS = 1000 / 30
+
 /**
  * `mm:ss` (ou `h:mm:ss` a partir de 1 hora). Arredonda para baixo, como relógio de player;
  * valor inválido ou negativo vira `00:00`.
