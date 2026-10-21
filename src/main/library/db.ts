@@ -8,7 +8,7 @@ import type { TranscriptStatus } from '@shared/transcript'
 import type { Database, SqliteModule } from './sqlite'
 
 /** Muda quando o formato do índice muda: o índice antigo é descartado e reconstruído das pastas. */
-export const LIBRARY_SCHEMA_VERSION = 3
+export const LIBRARY_SCHEMA_VERSION = 4
 
 export const IN_MEMORY = ':memory:'
 
@@ -29,6 +29,8 @@ export interface MeetingRow {
   summaryStatus: SummaryStatus
   hasVideo: boolean
   compactionStatus: ListCompaction
+  /** Grupo gravado no `meeting.json`; pode apontar para um grupo que não existe mais. */
+  groupId: string | null
   /** Tamanho e data do `video.mp4`; muda quando o Vídeo é trocado ou apagado. */
   videoSig: string | null
   /** Tamanho e data dos arquivos da pasta no momento da leitura: mudou, reindexa. */
@@ -57,8 +59,31 @@ export interface SearchParams {
   toMs: number | null
   /** Chaves (`tagKey`) das Tags do filtro; a Reunião precisa ter ao menos uma. */
   tagKeys: readonly string[]
+  group: GroupFilter | null
   sort: LibrarySort
   limit: number
+}
+
+/** Filtro de grupo: um grupo, ou as Reuniões sem grupo (ou com um `groupId` fora de `validIds`). */
+export type GroupFilter = { kind: 'id'; id: string } | { kind: 'none'; validIds: readonly string[] }
+
+export interface GroupStatsRow {
+  count: number
+  totalDurationMs: number
+  /** Início (ms) da Reunião mais recente. */
+  lastMs: number
+}
+
+export interface GroupSubjectRow {
+  id: string
+  folderName: string
+  name: string
+  createdAt: string
+  durationMs: number | null
+  status: MeetingStatus
+  sourceKind: CaptureSourceKind
+  sourceName: string | null
+  groupId: string | null
 }
 
 export interface HitRow {
@@ -97,6 +122,7 @@ CREATE TABLE meetings (
   summary_status TEXT NOT NULL,
   has_video INTEGER NOT NULL,
   compaction_status TEXT NOT NULL DEFAULT 'none',
+  group_id TEXT,
   video_sig TEXT,
   signature TEXT NOT NULL,
   thumb_sig TEXT,
@@ -104,6 +130,7 @@ CREATE TABLE meetings (
   thumb_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX meetings_created ON meetings (created_ms);
+CREATE INDEX meetings_group ON meetings (group_id);
 
 CREATE TABLE meeting_tags (
   meeting_id TEXT NOT NULL,
@@ -144,7 +171,7 @@ END;
 
 const MEETING_COLUMNS = `id, folder_name, name, created_at, created_ms, duration_ms, status,
   source_kind, source_name, size_bytes, note_count, transcript_status, summary_status, has_video,
-  compaction_status, video_sig, signature`
+  compaction_status, group_id, video_sig, signature`
 
 function toStored(row: Row): StoredMeeting {
   return {
@@ -163,6 +190,7 @@ function toStored(row: Row): StoredMeeting {
     summaryStatus: row['summary_status'] as SummaryStatus,
     hasVideo: row['has_video'] === 1,
     compactionStatus: row['compaction_status'] as ListCompaction,
+    groupId: (row['group_id'] as string | null) ?? null,
     videoSig: (row['video_sig'] as string | null) ?? null,
     signature: row['signature'] as string,
     thumbSig: (row['thumb_sig'] as string | null) ?? null,
@@ -180,6 +208,18 @@ function whereClause(params: SearchParams): { sql: string; values: Param[] } {
       `EXISTS (SELECT 1 FROM meeting_tags t WHERE t.meeting_id = m.id AND t.tag_key IN (${marks}))`
     )
     values.push(...params.tagKeys)
+  }
+  if (params.group?.kind === 'id') {
+    clauses.push('m.group_id = ?')
+    values.push(params.group.id)
+  } else if (params.group?.kind === 'none') {
+    const ids = params.group.validIds
+    clauses.push(
+      ids.length === 0
+        ? '1 = 1'
+        : `(m.group_id IS NULL OR m.group_id NOT IN (${ids.map(() => '?').join(', ')}))`
+    )
+    values.push(...ids)
   }
   if (params.fromMs !== null) {
     clauses.push('m.created_ms >= ?')
@@ -313,7 +353,7 @@ export class LibraryDb {
       this.run('DELETE FROM skipped WHERE folder_name = ?', [row.folderName])
       this.run(
         `INSERT INTO meetings (${MEETING_COLUMNS})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO UPDATE SET
            folder_name = excluded.folder_name, name = excluded.name,
            created_at = excluded.created_at, created_ms = excluded.created_ms,
@@ -322,7 +362,7 @@ export class LibraryDb {
            size_bytes = excluded.size_bytes, note_count = excluded.note_count,
            transcript_status = excluded.transcript_status, summary_status = excluded.summary_status,
            has_video = excluded.has_video, compaction_status = excluded.compaction_status,
-           video_sig = excluded.video_sig,
+           group_id = excluded.group_id, video_sig = excluded.video_sig,
            signature = excluded.signature`,
         [
           row.id,
@@ -340,6 +380,7 @@ export class LibraryDb {
           row.summaryStatus,
           row.hasVideo ? 1 : 0,
           row.compactionStatus,
+          row.groupId,
           row.videoSig,
           row.signature
         ]
@@ -412,6 +453,40 @@ export class LibraryDb {
     return this.all(
       'SELECT MIN(name) AS name, count(*) AS n FROM meeting_tags GROUP BY tag_key'
     ).map((row) => ({ name: row['name'] as string, count: row['n'] as number }))
+  }
+
+  /** Contagem, duração total e última Reunião de cada grupo que tem Reuniões. */
+  groupStats(): Map<string, GroupStatsRow> {
+    const stats = new Map<string, GroupStatsRow>()
+    for (const row of this.all(
+      `SELECT group_id, count(*) AS n, COALESCE(SUM(duration_ms), 0) AS total, MAX(created_ms) AS last
+       FROM meetings WHERE group_id IS NOT NULL GROUP BY group_id`
+    )) {
+      stats.set(row['group_id'] as string, {
+        count: row['n'] as number,
+        totalDurationMs: row['total'] as number,
+        lastMs: row['last'] as number
+      })
+    }
+    return stats
+  }
+
+  /** O que as regras dos grupos precisam de cada Reunião (sem as Tags, que vêm de `tagsFor`). */
+  groupSubjects(): GroupSubjectRow[] {
+    return this.all(
+      `SELECT id, folder_name, name, created_at, duration_ms, status, source_kind, source_name, group_id
+       FROM meetings ORDER BY created_ms DESC`
+    ).map((row) => ({
+      id: row['id'] as string,
+      folderName: row['folder_name'] as string,
+      name: row['name'] as string,
+      createdAt: row['created_at'] as string,
+      durationMs: (row['duration_ms'] as number | null) ?? null,
+      status: row['status'] as MeetingStatus,
+      sourceKind: row['source_kind'] as CaptureSourceKind,
+      sourceName: (row['source_name'] as string | null) ?? null,
+      groupId: (row['group_id'] as string | null) ?? null
+    }))
   }
 
   /** Reuniões com Vídeo cuja miniatura não foi gerada para o Vídeo atual, mais recentes primeiro. */

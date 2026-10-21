@@ -2,7 +2,7 @@ import { lstat, stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { MEETING_FILE } from '@shared/meeting'
 import type { RecordingError, Result } from '@shared/recording'
-import { isDirectChild, isStagingName } from './repository'
+import { isDirectChild, isIgnoredFolderName } from './repository'
 
 function fail(code: RecordingError['code'], message: string): { ok: false; error: RecordingError } {
   return { ok: false, error: { code, message } }
@@ -26,7 +26,7 @@ export async function checkMeetingFolder(root: string, folder: unknown): Promise
     return fail('invalid-request', 'A pasta não está dentro da pasta das Reuniões.')
   }
   const resolved = resolve(folder)
-  if (isStagingName(basename(resolved))) {
+  if (isIgnoredFolderName(basename(resolved))) {
     return fail('invalid-request', 'A pasta não é de uma Reunião.')
   }
   let info

@@ -11,7 +11,8 @@ import {
   openLibraryDb,
   type FragmentInput,
   type LibraryDb,
-  type MeetingRow
+  type MeetingRow,
+  type SearchParams
 } from './db'
 import { loadSqlite, type SqliteModule } from './sqlite'
 
@@ -36,6 +37,7 @@ function row(overrides: Partial<MeetingRow> = {}): MeetingRow {
     summaryStatus: 'none',
     hasVideo: true,
     compactionStatus: 'none',
+    groupId: null,
     videoSig: '10:1',
     signature: 'sig-1',
     ...overrides
@@ -50,6 +52,7 @@ function search(db: LibraryDb, text: string): string[] {
   return db
     .query({
       tagKeys: [],
+      group: null,
       fts: buildFtsQuery(text),
       fromMs: null,
       toMs: null,
@@ -172,6 +175,7 @@ suite('índice e busca', () => {
     ])
     const result = db.query({
       tagKeys: [],
+      group: null,
       fts: buildFtsQuery('marketing'),
       fromMs: null,
       toMs: null,
@@ -195,7 +199,7 @@ suite('índice e busca', () => {
     db.upsert(row({ id: 'd', folderName: 'd', createdMs: day('2026-10-11T00:00:00Z') }), [])
     const ids = (fromMs: number | null, toMs: number | null): string[] =>
       db
-        .query({ tagKeys: [], fts: null, fromMs, toMs, sort: 'oldest', limit: 10 })
+        .query({ tagKeys: [], group: null, fts: null, fromMs, toMs, sort: 'oldest', limit: 10 })
         .rows.map((meeting) => meeting.id)
     expect(ids(day('2026-10-10T00:00:00Z'), day('2026-10-11T00:00:00Z'))).toEqual(['b', 'c'])
     expect(ids(day('2026-10-10T00:00:00Z'), null)).toEqual(['b', 'c', 'd'])
@@ -209,7 +213,7 @@ suite('índice e busca', () => {
     db.upsert(row({ id: 'c', folderName: 'c', createdMs: 3, durationMs: 90 }), [])
     const order = (sort: 'newest' | 'oldest' | 'longest' | 'relevance'): string[] =>
       db
-        .query({ tagKeys: [], fts: null, fromMs: null, toMs: null, sort, limit: 10 })
+        .query({ tagKeys: [], group: null, fts: null, fromMs: null, toMs: null, sort, limit: 10 })
         .rows.map((r) => r.id)
     expect(order('newest')).toEqual(['c', 'b', 'a'])
     expect(order('oldest')).toEqual(['a', 'b', 'c'])
@@ -223,6 +227,7 @@ suite('índice e busca', () => {
     }
     const result = db.query({
       tagKeys: [],
+      group: null,
       fts: null,
       fromMs: null,
       toMs: null,
@@ -267,7 +272,15 @@ suite('índice e busca', () => {
     db.upsert(row({ id: 'c', folderName: 'c' }), [], [])
     const ids = (tagKeys: string[]): string[] =>
       db
-        .query({ tagKeys, fts: null, fromMs: null, toMs: null, sort: 'oldest', limit: 10 })
+        .query({
+          tagKeys,
+          group: null,
+          fts: null,
+          fromMs: null,
+          toMs: null,
+          sort: 'oldest',
+          limit: 10
+        })
         .rows.map((meeting) => meeting.id)
         .sort()
     expect(ids([])).toEqual(['a', 'b', 'c'])
@@ -285,6 +298,79 @@ suite('índice e busca', () => {
     expect(db.tagCounts()).toEqual([{ name: 'Outra', count: 1 }])
     db.remove('pasta-a')
     expect(db.tagCounts()).toEqual([])
+  })
+
+  it('filtra por grupo, inclusive "sem grupo" (ou de um grupo que não existe)', () => {
+    db.upsert(row({ id: 'a', folderName: 'a', groupId: 'g1' }), [])
+    db.upsert(row({ id: 'b', folderName: 'b', groupId: 'g2' }), [])
+    db.upsert(row({ id: 'c', folderName: 'c', groupId: 'apagado' }), [])
+    db.upsert(row({ id: 'd', folderName: 'd', groupId: null }), [])
+    const ids = (group: SearchParams['group']): string[] =>
+      db
+        .query({
+          tagKeys: [],
+          group,
+          fts: null,
+          fromMs: null,
+          toMs: null,
+          sort: 'oldest',
+          limit: 10
+        })
+        .rows.map((meeting) => meeting.id)
+        .sort()
+    expect(ids(null)).toEqual(['a', 'b', 'c', 'd'])
+    expect(ids({ kind: 'id', id: 'g1' })).toEqual(['a'])
+    expect(ids({ kind: 'id', id: 'nenhum' })).toEqual([])
+    expect(ids({ kind: 'none', validIds: ['g1', 'g2'] })).toEqual(['c', 'd'])
+    expect(ids({ kind: 'none', validIds: [] })).toEqual(['a', 'b', 'c', 'd'])
+    expect(db.findByFolder('a')?.groupId).toBe('g1')
+    expect(db.findByFolder('d')?.groupId).toBeNull()
+  })
+
+  it('agrega contagem, duração total e última Reunião de cada grupo', () => {
+    const at = (iso: string): number => Date.parse(iso)
+    db.upsert(
+      row({
+        id: 'a',
+        folderName: 'a',
+        groupId: 'g1',
+        durationMs: 60_000,
+        createdMs: at('2026-10-10T12:00:00Z')
+      }),
+      []
+    )
+    db.upsert(
+      row({
+        id: 'b',
+        folderName: 'b',
+        groupId: 'g1',
+        durationMs: 30_000,
+        createdMs: at('2026-10-12T12:00:00Z')
+      }),
+      []
+    )
+    db.upsert(row({ id: 'c', folderName: 'c', groupId: 'g2', durationMs: null }), [])
+    db.upsert(row({ id: 'd', folderName: 'd', groupId: null }), [])
+    expect(db.groupStats()).toEqual(
+      new Map([
+        ['g1', { count: 2, totalDurationMs: 90_000, lastMs: at('2026-10-12T12:00:00Z') }],
+        ['g2', { count: 1, totalDurationMs: 0, lastMs: at('2026-10-10T17:30:00.000Z') }]
+      ])
+    )
+    expect(db.groupSubjects().map((item) => [item.id, item.groupId])).toEqual(
+      expect.arrayContaining([
+        ['a', 'g1'],
+        ['d', null]
+      ])
+    )
+  })
+
+  it('reindexar troca o grupo da Reunião', () => {
+    db.upsert(row({ groupId: 'g1' }), [])
+    db.upsert(row({ groupId: 'g2', signature: 'sig-2' }), [])
+    expect([...db.groupStats().keys()]).toEqual(['g2'])
+    db.upsert(row({ groupId: null, signature: 'sig-3' }), [])
+    expect(db.groupStats().size).toBe(0)
   })
 
   it('pastas ignoradas ficam guardadas até mudarem', () => {

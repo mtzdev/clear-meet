@@ -263,3 +263,27 @@ describe('Tags no meeting.json', () => {
     expect(again.ok && again.value.tags).toEqual(['Daily'])
   })
 })
+
+describe('grupo da Reunião', () => {
+  const base = meeting()
+
+  it('um arquivo antigo, sem o campo, continua válido e sem grupo', () => {
+    const parsed = parseMeeting(base)
+    expect(parsed.ok && parsed.value.groupId).toBeUndefined()
+  })
+
+  it('lê o groupId e ignora valores que não são texto', () => {
+    const parsed = parseMeeting({ ...base, groupId: 'grupo-1' })
+    expect(parsed.ok && parsed.value.groupId).toBe('grupo-1')
+    expect(parseMeeting({ ...base, groupId: 7 }).ok).toBe(true)
+    const invalid = parseMeeting({ ...base, groupId: 7 })
+    expect(invalid.ok && invalid.value.groupId).toBeUndefined()
+  })
+
+  it('ida e volta pelo texto preserva o grupo', () => {
+    const parsed = parseMeeting({ ...base, groupId: 'grupo-1' })
+    if (!parsed.ok) throw new Error(parsed.error)
+    const again = parseMeetingText(serializeMeeting(parsed.value))
+    expect(again.ok && again.value.groupId).toBe('grupo-1')
+  })
+})

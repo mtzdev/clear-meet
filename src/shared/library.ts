@@ -21,6 +21,8 @@ export interface MeetingListItem {
   sizeBytes: number
   noteCount: number
   tags: string[]
+  /** Grupo da Reunião; `null` = sem grupo (inclui o `groupId` de um grupo que não existe mais). */
+  groupId: string | null
   transcriptStatus: TranscriptStatus
   summaryStatus: SummaryStatus
   /** `video.mp4` existe na pasta. */
@@ -42,6 +44,8 @@ export interface LibraryQuery {
   text: string
   /** Reuniões com qualquer uma destas Tags (OU); vazio = sem filtro de Tag. */
   tags: string[]
+  /** Só as Reuniões deste grupo, ou `UNGROUPED_FILTER` para as sem grupo; `null` = todas. */
+  groupId: string | null
   /** Início (inclusive) e fim (exclusivo) em ms desde a época, sobre o início da gravação. */
   fromMs: number | null
   toMs: number | null
@@ -53,6 +57,7 @@ export interface LibraryQuery {
 export const DEFAULT_LIBRARY_QUERY: LibraryQuery = {
   text: '',
   tags: [],
+  groupId: null,
   fromMs: null,
   toMs: null,
   sort: 'newest',
@@ -178,13 +183,15 @@ export interface MeetingDetail {
   /** Ordenadas por Instante. */
   notes: MeetingNote[]
   tags: string[]
+  /** `groupId` do `meeting.json` (pode ser de um grupo que não existe mais). */
+  groupId: string | null
   issues: MeetingIssue[]
   lock: MeetingLock | null
   transcript: TranscriptView
   summary: SummaryView
 }
 
-export type ListAction = 'rename' | 'delete' | 'delete-video' | 'tag'
+export type ListAction = 'rename' | 'delete' | 'delete-video' | 'tag' | 'group'
 
 /** Por que uma ação da lista (editar título, excluir) está bloqueada. */
 export type ListBlock = 'recording' | 'unfinished' | 'transcribing' | 'summarizing' | 'compacting'
@@ -207,11 +214,11 @@ type BlockInput = Pick<
  * segue o bloqueio de edição da tela da Reunião; excluir só barra o que o app está escrevendo
  * agora (uma Reunião interrompida ou com arquivos pendentes pode ser excluída). Apagar só o
  * Vídeo exige a Reunião pronta e o Vídeo fora de uso, mas não espera a IA, que lê só o áudio.
- * Tags só exigem a Reunião pronta: o `meeting.json` é escrito em fila e nada é renomeado.
+ * Tags e grupos só exigem a Reunião pronta: o `meeting.json` é escrito em fila e nada é renomeado.
  * A Conversa em andamento só o main sabe: ele recusa o pedido com a mesma mensagem de "ocupada".
  */
 export function listBlock(item: BlockInput, action: ListAction): ListBlock | null {
-  if (action === 'tag') return lockFor(item.status, item.live)
+  if (action === 'tag' || action === 'group') return lockFor(item.status, item.live)
   if (action === 'rename') {
     const lock = lockFor(item.status, item.live)
     if (lock) return lock

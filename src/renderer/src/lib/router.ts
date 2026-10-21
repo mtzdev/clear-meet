@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 
-/** Áreas do app. "meeting" é o detalhe de uma Reunião. */
-export const ROUTES = ['record', 'meetings', 'meeting', 'settings'] as const
+/** Áreas do app. "meeting" é o detalhe de uma Reunião e "group", a tela de um grupo. */
+export const ROUTES = ['record', 'meetings', 'meeting', 'group', 'settings'] as const
 export type Route = (typeof ROUTES)[number]
 
 export const DEFAULT_ROUTE: Route = 'record'
@@ -54,6 +54,41 @@ export function parseMeetingStart(hash: string): number | null {
   return Number.isSafeInteger(value) ? value : null
 }
 
+/** Lista de Reuniões na aba Grupos. */
+export const GROUPS_VIEW_HREF = '#/meetings?view=groups'
+
+export type MeetingsView = 'all' | 'groups'
+
+/** Aba da tela Reuniões (`#/meetings?view=groups`); qualquer outro valor é "Todas". */
+export function parseMeetingsView(hash: string): MeetingsView {
+  if (parseHash(hash) !== 'meetings') return 'all'
+  return parseHashParams(hash).get('view') === 'groups' ? 'groups' : 'all'
+}
+
+/** Filtro de grupo pedido na rota da lista (`&group=<id>`), ou `null`. */
+export function parseMeetingsGroup(hash: string): string | null {
+  if (parseHash(hash) !== 'meetings') return null
+  const group = parseHashParams(hash).get('group')
+  return group !== null && group !== '' ? group : null
+}
+
+/** Link para a lista de Reuniões já filtrada por um grupo (ou `UNGROUPED_FILTER`). */
+export function meetingsGroupHref(group: string): string {
+  return `${hrefFor('meetings')}?group=${encodeURIComponent(group)}`
+}
+
+/** Link para a tela de um grupo. */
+export function groupHref(id: string): string {
+  return `${hrefFor('group')}?id=${encodeURIComponent(id)}`
+}
+
+/** `id` do grupo aberto no hash, ou `null`. */
+export function parseGroupId(hash: string): string | null {
+  if (parseHash(hash) !== 'group') return null
+  const id = parseHashParams(hash).get('id')
+  return id !== null && id !== '' ? id : null
+}
+
 export function openMeeting(id: string, startMs?: number | null): void {
   window.location.hash = meetingHref(id, startMs)
 }
@@ -77,6 +112,23 @@ export function useRoute(): Route {
 export function useMeetingId(): string | null {
   const hash = useSyncExternalStore(subscribe, () => window.location.hash)
   return parseMeetingId(hash)
+}
+
+/** Aba da tela Reuniões e filtro de grupo pedidos na rota. */
+export function useMeetingsView(): MeetingsView {
+  const hash = useSyncExternalStore(subscribe, () => window.location.hash)
+  return parseMeetingsView(hash)
+}
+
+export function useMeetingsGroup(): string | null {
+  const hash = useSyncExternalStore(subscribe, () => window.location.hash)
+  return parseMeetingsGroup(hash)
+}
+
+/** `id` do grupo aberto (rota `#/group?id=...`). */
+export function useGroupId(): string | null {
+  const hash = useSyncExternalStore(subscribe, () => window.location.hash)
+  return parseGroupId(hash)
 }
 
 /** Instante inicial pedido na rota (`&t=...`), em ms. */

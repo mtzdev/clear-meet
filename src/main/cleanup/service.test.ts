@@ -65,6 +65,7 @@ async function createMeeting(spec: Spec): Promise<MeetingListItem> {
     sizeBytes: 0,
     noteCount: 0,
     tags: [],
+    groupId: null,
     transcriptStatus: 'none',
     summaryStatus: 'none',
     hasVideo,

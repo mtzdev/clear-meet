@@ -6,13 +6,18 @@ import {
   meetingHref,
   parseHash,
   parseHashParams,
+  groupHref,
+  meetingsGroupHref,
+  parseGroupId,
   parseMeetingId,
+  parseMeetingsGroup,
+  parseMeetingsView,
   parseMeetingStart
 } from './router'
 
 describe('router', () => {
-  it('tem as 4 áreas do app', () => {
-    expect([...ROUTES]).toEqual(['record', 'meetings', 'meeting', 'settings'])
+  it('tem as áreas do app', () => {
+    expect([...ROUTES]).toEqual(['record', 'meetings', 'meeting', 'group', 'settings'])
   })
 
   it('interpreta o hash de cada rota', () => {
@@ -82,5 +87,25 @@ describe('Instante inicial no hash', () => {
   it('o t pode vir antes do id', () => {
     expect(parseMeetingStart('#/meeting?t=9000&id=abc')).toBe(9000)
     expect(parseMeetingId('#/meeting?t=9000&id=abc')).toBe('abc')
+  })
+})
+
+describe('grupos no hash', () => {
+  it('monta e lê o link de um grupo', () => {
+    for (const id of ['abc-123', 'a b&c=d']) {
+      expect(parseHash(groupHref(id))).toBe('group')
+      expect(parseGroupId(groupHref(id))).toBe(id)
+    }
+    expect(parseGroupId('#/group')).toBeNull()
+    expect(parseGroupId('#/meeting?id=x')).toBeNull()
+  })
+
+  it('lê a aba e o filtro de grupo da tela Reuniões', () => {
+    expect(parseMeetingsView('#/meetings')).toBe('all')
+    expect(parseMeetingsView('#/meetings?view=groups')).toBe('groups')
+    expect(parseMeetingsView('#/settings?view=groups')).toBe('all')
+    expect(parseMeetingsGroup('#/meetings')).toBeNull()
+    expect(parseMeetingsGroup(meetingsGroupHref('none'))).toBe('none')
+    expect(parseMeetingsGroup(meetingsGroupHref('a&b'))).toBe('a&b')
   })
 })

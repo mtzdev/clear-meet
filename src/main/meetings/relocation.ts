@@ -6,6 +6,7 @@ import type {
   RelocationRequest,
   RelocationSummary
 } from '@shared/relocation'
+import { moveGroupsFile } from '../groups/relocate'
 import { sameFolder } from './paths'
 import {
   listMeetingFolders,
@@ -112,6 +113,11 @@ export class MeetingsRelocation {
         onProgress: (progress) => this.deps.emit(progress),
         log: (message) => this.deps.log(message)
       })
+      if (request.move === true) {
+        const complete = result.issues.length === 0 && result.notAttempted === 0
+        const outcome = await moveGroupsFile(previousDir, newDir, complete)
+        if (outcome === 'failed') this.deps.log('[pasta] não levou a definição dos grupos')
+      }
       try {
         await this.deps.commit(newDir)
       } catch (error) {

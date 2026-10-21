@@ -1,4 +1,4 @@
-import { FileText, Pencil, RefreshCw, Sparkles, Trash2, VideoOff } from 'lucide-react'
+import { FileText, FolderInput, Pencil, RefreshCw, Sparkles, Trash2, VideoOff } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { DeleteMeetingDialog } from '@/components/library/delete-meeting-dialog'
 import { DeleteVideoDialog } from '@/components/library/delete-video-dialog'
@@ -7,6 +7,7 @@ import { Snippet } from '@/components/library/snippet'
 import { StatusBadge } from '@/components/library/status-badge'
 import { Thumbnail } from '@/components/library/thumbnail'
 import { TitleEditor } from '@/components/library/title-editor'
+import { MeetingGroup } from '@/components/groups/meeting-group'
 import { SourceIcon } from '@/components/meeting/source-icon'
 import { MeetingTags } from '@/components/tags/meeting-tags'
 import { Button } from '@/components/ui/button'
@@ -24,11 +25,13 @@ import { formatBytes, formatDateTime, formatDuration } from '@/lib/format'
 import { SOURCE_KIND_LABEL } from '@/lib/meeting-text'
 import { meetingHref } from '@/lib/router'
 import { cn } from '@/lib/utils'
+import type { GroupsOverview } from '@shared/groups'
 import {
   listBlock,
   LIST_BLOCK_TEXT,
   type HitKind,
   type LibraryEntry,
+  type MeetingListItem,
   type SearchHit
 } from '@shared/library'
 import { formatInstant } from '@shared/timeline'
@@ -108,12 +111,29 @@ function ActionButton({
   )
 }
 
+interface MeetingCardProps {
+  entry: LibraryEntry
+  groups: GroupsOverview | null
+  selected: boolean
+  /** Há Reuniões escolhidas na lista: o quadradinho fica sempre visível. */
+  selecting: boolean
+  onSelectedChange: (selected: boolean) => void
+  onMoveRequest: (meeting: MeetingListItem) => void
+}
+
 /**
  * Uma Reunião na lista: o cartão todo abre a Reunião; cada trecho achado abre já no Instante.
  * Editar o título, excluir e a prévia das Anotações ficam sobre o cartão (o menu de contexto
- * também oferece as duas ações).
+ * também oferece as duas ações). O quadradinho de escolha e o grupo servem à seleção em lote.
  */
-export function MeetingCard({ entry }: { entry: LibraryEntry }) {
+export function MeetingCard({
+  entry,
+  groups,
+  selected,
+  selecting,
+  onSelectedChange,
+  onMoveRequest
+}: MeetingCardProps) {
   const { meeting, hits, hitCount } = entry
   const source =
     meeting.source.kind === 'window' && meeting.source.name
@@ -140,6 +160,8 @@ export function MeetingCard({ entry }: { entry: LibraryEntry }) {
   const renameReason = renameBlock && LIST_BLOCK_TEXT[renameBlock]
   const deleteReason = deleteBlock && LIST_BLOCK_TEXT[deleteBlock]
   const tagBlock = listBlock(meeting, 'tag')
+  const groupBlock = listBlock(meeting, 'group')
+  const groupReason = groupBlock && LIST_BLOCK_TEXT[groupBlock]
   const videoBlock = listBlock(meeting, 'delete-video')
   const videoReason = videoBlock && LIST_BLOCK_TEXT[videoBlock]
   const name = saved?.from === meeting.name ? saved.to : meeting.name
@@ -180,7 +202,26 @@ export function MeetingCard({ entry }: { entry: LibraryEntry }) {
     <>
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <li className="group/card border-border hover:bg-accent/40 focus-within:ring-ring/60 relative rounded-xl border transition-colors focus-within:ring-2">
+          <li
+            className={cn(
+              'group/card border-border hover:bg-accent/40 focus-within:ring-ring/60 relative rounded-xl border transition-colors focus-within:ring-2',
+              selected && 'border-primary/60 bg-accent/50'
+            )}
+          >
+            <input
+              type="checkbox"
+              checked={selected}
+              disabled={groupBlock !== null}
+              title={groupReason ?? undefined}
+              aria-label={`Escolher ${name}`}
+              className={cn(
+                'accent-primary absolute top-4.5 left-4.5 z-20 size-4 cursor-pointer disabled:cursor-not-allowed',
+                selecting || selected
+                  ? 'opacity-100'
+                  : 'opacity-0 group-focus-within/card:opacity-100 group-hover/card:opacity-100 focus-visible:opacity-100'
+              )}
+              onChange={(event) => onSelectedChange(event.target.checked)}
+            />
             <div className="relative flex gap-4 p-3 pr-14">
               <Thumbnail item={meeting} className="w-36" />
               <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5">
@@ -221,6 +262,14 @@ export function MeetingCard({ entry }: { entry: LibraryEntry }) {
                   </p>
                 )}
                 <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <MeetingGroup
+                    folder={meeting.folder}
+                    groupId={meeting.groupId}
+                    overview={groups}
+                    blockedReason={groupReason}
+                    className="relative z-10"
+                    addClassName="opacity-0 group-focus-within/card:opacity-100 group-hover/card:opacity-100 focus-visible:opacity-100"
+                  />
                   <span className="flex min-w-0 items-center gap-1.5">
                     <SourceIcon kind={meeting.source.kind} className="size-3.5" />
                     <span className="truncate">{source}</span>
@@ -271,6 +320,11 @@ export function MeetingCard({ entry }: { entry: LibraryEntry }) {
             <Pencil aria-hidden />
             Editar título
             {renameReason && <ContextMenuShortcut>{renameReason}</ContextMenuShortcut>}
+          </ContextMenuItem>
+          <ContextMenuItem disabled={groupBlock !== null} onSelect={() => onMoveRequest(meeting)}>
+            <FolderInput aria-hidden />
+            Mover para grupo…
+            {groupReason && <ContextMenuShortcut>{groupReason}</ContextMenuShortcut>}
           </ContextMenuItem>
           {meeting.hasVideo && (
             <ContextMenuItem

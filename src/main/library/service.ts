@@ -8,7 +8,15 @@ import {
   type MeetingListItem,
   type SearchHit
 } from '@shared/library'
-import { MEETING_FILE, MEETING_FILES, meetingTags, type MeetingNote } from '@shared/meeting'
+import type { SuggestionSubject } from '@shared/group-suggestions'
+import { UNGROUPED_FILTER } from '@shared/groups'
+import {
+  MEETING_FILE,
+  MEETING_FILES,
+  meetingTags,
+  type MeetingNote,
+  type MeetingStatus
+} from '@shared/meeting'
 import { thumbnailUrl } from '@shared/media'
 import type { RecordingState } from '@shared/recording'
 import { buildFtsQuery, makeSnippet, searchTokens } from '@shared/search'
@@ -21,7 +29,13 @@ import { findMeetingFolder } from '../meetings/library'
 import { isDirectChild, readMeeting } from '../meetings/repository'
 import { readSummary } from '../meetings/summary-store'
 import { readTranscript } from '../meetings/transcript-store'
-import { openLibraryDb, type LibraryDb, type StoredMeeting } from './db'
+import {
+  openLibraryDb,
+  type GroupFilter,
+  type GroupStatsRow,
+  type LibraryDb,
+  type StoredMeeting
+} from './db'
 import { buildFragments, buildRow } from './extract'
 import { listFolderNames, scanFolder } from './scan'
 import type { SqliteModule } from './sqlite'
@@ -48,6 +62,8 @@ export interface LibraryServiceDeps {
   thumbnailsDir: string
   meetingsDir(): string
   activeFolder(): string | null
+  /** Ids dos grupos que existem agora (um `groupId` fora desta lista conta como sem grupo). */
+  groupIds(): Promise<readonly string[]>
   loadSqlite(): Promise<SqliteModule>
   getTools(): Promise<FfmpegTools | null>
   /** Falso enquanto há gravação (a máquina é dela). */
@@ -60,6 +76,15 @@ export interface LibraryServiceDeps {
 }
 
 const UNAVAILABLE = 'Não foi possível abrir o índice das Reuniões.'
+
+/** Uma Reunião do índice com o que os grupos precisam dela. */
+export interface IndexedMeeting extends SuggestionSubject {
+  folder: string
+  status: MeetingStatus
+  durationMs: number | null
+  /** Já só com grupos que existem. */
+  groupId: string | null
+}
 
 function clampLimit(limit: number | null): number {
   if (limit === null || !Number.isFinite(limit)) return DEFAULT_LIMIT
@@ -74,6 +99,7 @@ function finiteOrNull(value: unknown): number | null {
 export function normalizeQuery(query: LibraryQuery): {
   text: string
   tagKeys: string[]
+  groupId: string | null
   fromMs: number | null
   toMs: number | null
   sort: LibraryQuery['sort']
@@ -84,6 +110,10 @@ export function normalizeQuery(query: LibraryQuery): {
     tagKeys: Array.isArray(query.tags)
       ? [...new Set(query.tags.filter((tag) => typeof tag === 'string').map(tagKey))]
       : [],
+    groupId:
+      typeof query.groupId === 'string' && query.groupId !== ''
+        ? query.groupId.slice(0, 100)
+        : null,
     fromMs: finiteOrNull(query.fromMs),
     toMs: finiteOrNull(query.toMs),
     sort: isLibrarySort(query.sort) ? query.sort : 'newest',
@@ -211,11 +241,19 @@ export class LibraryService {
     const active = this.deps.activeFolder()
     const fts = buildFtsQuery(query.text)
     const tokens = searchTokens(query.text)
+    const validGroups = await this.deps.groupIds()
+    const group: GroupFilter | null =
+      query.groupId === null
+        ? null
+        : query.groupId === UNGROUPED_FILTER
+          ? { kind: 'none', validIds: validGroups }
+          : { kind: 'id', id: query.groupId }
     const { rows, total } = db.query({
       fts,
       fromMs: query.fromMs,
       toMs: query.toMs,
       tagKeys: query.tagKeys,
+      group,
       sort: query.sort,
       limit: query.limit
     })
@@ -236,7 +274,7 @@ export class LibraryService {
         parts: makeSnippet(hit.body, tokens)
       }))
       return {
-        meeting: toItem(row, root, active, tags.get(row.id) ?? []),
+        meeting: toItem(row, root, active, tags.get(row.id) ?? [], validGroups),
         hits: searchHits,
         hitCount: found?.total ?? 0
       }
@@ -261,17 +299,47 @@ export class LibraryService {
       fromMs: null,
       toMs: cutoffMs,
       tagKeys: [],
+      group: null,
       sort: 'oldest',
       limit: Number.MAX_SAFE_INTEGER
     })
     const tags = db.tagsFor(rows.map((row) => row.id))
-    return rows.map((row) => toItem(row, root, active, tags.get(row.id) ?? []))
+    const validGroups = await this.deps.groupIds()
+    return rows.map((row) => toItem(row, root, active, tags.get(row.id) ?? [], validGroups))
   }
 
   /** Tags usadas pelas Reuniões do índice, com a contagem de cada uma. */
   async tagCounts(): Promise<TagInfo[]> {
     const db = await this.open()
     return db ? db.tagCounts() : []
+  }
+
+  /** Contagem, duração total e última Reunião de cada grupo (só os que têm Reuniões). */
+  async groupStats(): Promise<Map<string, GroupStatsRow>> {
+    const db = await this.open()
+    return db ? db.groupStats() : new Map()
+  }
+
+  /** Todas as Reuniões do índice com o que as regras dos grupos enxergam delas. */
+  async indexedMeetings(): Promise<IndexedMeeting[]> {
+    const db = await this.open()
+    if (!db) return []
+    const root = this.deps.meetingsDir()
+    const rows = db.groupSubjects()
+    const tags = db.tagsFor(rows.map((row) => row.id))
+    const valid = new Set(await this.deps.groupIds())
+    return rows.map((row) => ({
+      id: row.id,
+      folder: join(root, row.folderName),
+      name: row.name,
+      createdAt: row.createdAt,
+      status: row.status,
+      durationMs: row.durationMs,
+      sourceKind: row.sourceKind,
+      sourceName: row.sourceName,
+      tags: tags.get(row.id) ?? [],
+      groupId: row.groupId !== null && valid.has(row.groupId) ? row.groupId : null
+    }))
   }
 
   /**
@@ -518,7 +586,8 @@ function toItem(
   row: StoredMeeting,
   root: string,
   active: string | null,
-  tags: string[]
+  tags: string[],
+  validGroups: readonly string[]
 ): MeetingListItem {
   const folder = join(root, row.folderName)
   const hasThumbnail = row.hasVideo && row.thumbOk && row.thumbSig === row.videoSig
@@ -534,6 +603,7 @@ function toItem(
     sizeBytes: row.sizeBytes,
     noteCount: row.noteCount,
     tags,
+    groupId: row.groupId !== null && validGroups.includes(row.groupId) ? row.groupId : null,
     transcriptStatus: row.transcriptStatus,
     summaryStatus: row.summaryStatus,
     hasVideo: row.hasVideo,

@@ -66,6 +66,12 @@ describe('meeting.json no disco', () => {
   it('lista só pastas (qualquer uma pode ser uma Reunião); raiz inexistente = vazio', async () => {
     await createMeeting('a')
     await writeFile(join(root, 'solto.txt'), 'x')
+    // Pastas reservadas: exclusão em andamento e a dos grupos.
+    await mkdir(join(root, '.excluindo-1'))
+    await mkdir(join(root, '.clearmeet'))
+    await mkdir(join(root, '.CLEARMEET2'))
+    expect(await listMeetingFolders(root)).toEqual([join(root, '.CLEARMEET2'), join(root, 'a')])
+    await rm(join(root, '.CLEARMEET2'), { recursive: true })
     expect(await listMeetingFolders(root)).toEqual([join(root, 'a')])
     expect(await listMeetingFolders(join(root, 'nao-existe'))).toEqual([])
   })

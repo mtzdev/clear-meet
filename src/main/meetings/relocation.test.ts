@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -93,7 +93,64 @@ describe('MeetingsRelocation.choose', () => {
   })
 })
 
+async function writeGroups(dir: string): Promise<void> {
+  await mkdir(join(dir, '.clearmeet'), { recursive: true })
+  await writeFile(join(dir, '.clearmeet', 'groups.json'), '{"groups":[]}')
+}
+
 describe('MeetingsRelocation.apply', () => {
+  it('leva a definição dos grupos (.clearmeet/groups.json) junto com as Reuniões', async () => {
+    await writeGroups(current)
+    const { relocation } = setup()
+    await relocation.choose()
+    const result = await relocation.apply({ newDir: target, move: true })
+    expect(result).toMatchObject({ ok: true, value: { moved: 2, total: 2 } })
+    expect(await readFile(join(target, '.clearmeet', 'groups.json'), 'utf8')).toBe('{"groups":[]}')
+    expect((await readdir(current)).sort()).toEqual([])
+  })
+
+  it('sem mover as Reuniões, os grupos ficam onde estão', async () => {
+    await writeGroups(current)
+    const { relocation } = setup()
+    await relocation.choose()
+    await relocation.apply({ newDir: target, move: false })
+    expect(await readdir(target)).toEqual([])
+    expect(await readdir(join(current, '.clearmeet'))).toEqual(['groups.json'])
+  })
+
+  it('não sobrescreve os grupos que já existem na pasta nova', async () => {
+    await writeGroups(current)
+    await mkdir(join(target, '.clearmeet'))
+    await writeFile(join(target, '.clearmeet', 'groups.json'), 'da pasta nova')
+    const { relocation } = setup()
+    await relocation.choose()
+    const result = await relocation.apply({ newDir: target, move: true })
+    expect(result.ok).toBe(true)
+    expect(await readFile(join(target, '.clearmeet', 'groups.json'), 'utf8')).toBe('da pasta nova')
+    expect(await readdir(join(current, '.clearmeet'))).toEqual(['groups.json'])
+  })
+
+  it('se alguma Reunião ficou para trás, copia os grupos em vez de mover', async () => {
+    await writeGroups(current)
+    const { relocation } = setup({
+      ops: {
+        rename: (from) => {
+          if (from.endsWith('b')) {
+            return Promise.reject(Object.assign(new Error('em uso'), { code: 'EBUSY' }))
+          }
+          return rename(from, join(target, 'a'))
+        },
+        copyFile: () => Promise.reject(new Error('não deveria copiar')),
+        remove: () => Promise.resolve()
+      }
+    })
+    await relocation.choose()
+    const result = await relocation.apply({ newDir: target, move: true })
+    expect(result).toMatchObject({ ok: true, value: { moved: 1 } })
+    expect(await readdir(join(target, '.clearmeet'))).toEqual(['groups.json'])
+    expect(await readdir(join(current, '.clearmeet'))).toEqual(['groups.json'])
+  })
+
   it('move as Reuniões, grava a pasta nova e reporta o resumo', async () => {
     const { relocation, calls, progress } = setup()
     await relocation.choose()

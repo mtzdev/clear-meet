@@ -1,6 +1,7 @@
 import { NO_AUDIO_NOTICE } from '@shared/audio-inputs'
 import { CircleCheck, FolderOpen, NotebookText, ScrollText, TriangleAlert } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
+import { MeetingGroup } from '@/components/groups/meeting-group'
 import { WarningNotice } from '@/components/record/notices'
 import { MeetingTags } from '@/components/tags/meeting-tags'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -9,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAiStatus } from '@/lib/ai'
 import { formatDuration } from '@/lib/format'
+import { useGroups, useMeetingGroupId } from '@/lib/groups'
 import { STOP_REASON_TEXT } from '@/lib/record-text'
 import { navigate, openMeeting } from '@/lib/router'
 import type { FinishedRecording } from '@shared/recording'
@@ -20,7 +22,17 @@ export function FinishedPanel({ finished }: { finished: FinishedRecording }) {
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const ai = useAiStatus()
+  const { overview } = useGroups()
+  const groupId = useMeetingGroupId(finished.meetingId)
+  /** O usuário escolheu o grupo aqui: as regras não mexem mais nele. */
+  const [groupTouched, setGroupTouched] = useState(false)
   const hasKey = ai.status?.keys.gemini.configured ?? false
+
+  /** Reunião nova, com nome e Tags agora definidos: as regras dos grupos automáticos podem pegá-la. */
+  const assignGroup = async (folder: string): Promise<void> => {
+    if (groupTouched || finished.status !== 'ready') return
+    await window.api.invoke('groups:autoAssign', { folder })
+  }
 
   /**
    * Salva o nome se mudou. Devolve a pasta atual da Reunião, ou `null` se algo impede de
@@ -44,6 +56,7 @@ export function FinishedPanel({ finished }: { finished: FinishedRecording }) {
       )
       return null
     }
+    await assignGroup(renamed.value.folder)
     return renamed.value.folder
   }
 
@@ -130,9 +143,37 @@ export function FinishedPanel({ finished }: { finished: FinishedRecording }) {
       {finished.status === 'ready' && (
         <div className="space-y-2">
           <Label>Tags</Label>
-          <MeetingTags folder={finished.folder} tags={[]} blockedReason={null} />
+          <MeetingTags
+            folder={finished.folder}
+            tags={[]}
+            blockedReason={null}
+            onChange={() => void assignGroup(finished.folder)}
+          />
         </div>
       )}
+
+      {finished.status === 'ready' &&
+        overview !== null &&
+        (overview.groups.length > 0 || groupId) && (
+          <div className="space-y-2">
+            <Label>Grupo</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <MeetingGroup
+                folder={finished.folder}
+                groupId={groupId}
+                overview={overview}
+                blockedReason={null}
+                className="text-xs"
+                onChanged={() => setGroupTouched(true)}
+              />
+              {groupId && !groupTouched && (
+                <span className="text-muted-foreground text-xs">
+                  Atribuído pelas regras do grupo
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
       {finished.status === 'ready' && !finished.hasAudioInput && (
         <p className="text-muted-foreground text-sm">{NO_AUDIO_NOTICE}</p>

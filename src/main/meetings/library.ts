@@ -76,6 +76,7 @@ export async function loadMeetingDetail(
       videoAspect: videoAspect(meeting),
       notes: [...meeting.notes].sort((a, b) => a.offsetMs - b.offsetMs),
       tags: meetingTags(meeting),
+      groupId: meeting.groupId ?? null,
       issues: meeting.issues,
       lock: lockFor(meeting.status, live),
       transcript: makeTranscriptView(meeting.transcript, transcriptProgress(folder)),

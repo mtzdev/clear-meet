@@ -5,6 +5,7 @@ import type { CompactionChangedEvent } from './compaction'
 import type { ContentArea } from './content-area'
 import type { FfmpegInstallState, FfmpegStatus } from './ffmpeg'
 import type { FloatingInfo, NoteSavedEvent } from './floating'
+import type { GroupInput, GroupsOverview, GroupWithApplied } from './groups'
 import type { LibraryQuery, LibraryResult, MeetingDetail } from './library'
 import type { MeetingNote } from './meeting'
 import type {
@@ -94,6 +95,38 @@ export interface IpcContract {
   'meeting:addTag': { request: { folder: string; name: string }; response: Result<string[]> }
   /** Tira a Tag da Reunião; a Tag continua no catálogo. */
   'meeting:removeTag': { request: { folder: string; name: string }; response: Result<string[]> }
+  /** Grupos com contagem, duração e última Reunião, as sugestões e se dá para alterar. `recheck` testa de novo se a pasta aceita gravar. */
+  'groups:list': { request: { recheck: boolean }; response: GroupsOverview }
+  /** Cria o grupo; com `applyNow`, põe nele as Reuniões sem grupo que as regras pegam. */
+  'groups:create': {
+    request: GroupInput & { applyNow: boolean }
+    response: Result<GroupWithApplied>
+  }
+  'groups:update': {
+    request: GroupInput & { id: string; applyNow: boolean }
+    response: Result<GroupWithApplied>
+  }
+  /** Apaga o grupo; as Reuniões ficam sem grupo. */
+  'groups:delete': { request: { id: string }; response: Result<{ updated: number }> }
+  /** Nova ordem dos grupos (a ordem é a prioridade das regras). */
+  'groups:reorder': { request: { ids: string[] }; response: Result<null> }
+  /** Quantas Reuniões sem grupo entrariam num grupo com estas regras (`id` = grupo em edição). */
+  'groups:preview': {
+    request: { id: string | null; rules: GroupInput['rules'] }
+    response: { matching: number }
+  }
+  /** Põe as Reuniões (prontas) no grupo, ou com `groupId: null` tira do grupo. */
+  'groups:setGroup': {
+    request: { folders: string[]; groupId: string | null }
+    response: Result<{ updated: number }>
+  }
+  /** Reunião nova: entra no primeiro grupo automático que combinar, se ainda não tem grupo. */
+  'groups:autoAssign': {
+    request: { folder: string }
+    response: Result<{ groupId: string | null }>
+  }
+  'groups:acceptSuggestion': { request: { id: string }; response: Result<GroupWithApplied> }
+  'groups:dismissSuggestion': { request: { id: string }; response: Result<null> }
   /** Catálogo efetivo de Tags (inclusive as sem Reunião), com a contagem de cada uma. */
   'tags:list': { request: void; response: TagInfo[] }
   /** Cria uma Tag no catálogo, sem marcar nenhuma Reunião. */
@@ -259,6 +292,16 @@ export const IPC_CHANNELS = {
   'tags:create': true,
   'tags:rename': true,
   'tags:delete': true,
+  'groups:list': true,
+  'groups:create': true,
+  'groups:update': true,
+  'groups:delete': true,
+  'groups:reorder': true,
+  'groups:preview': true,
+  'groups:setGroup': true,
+  'groups:autoAssign': true,
+  'groups:acceptSuggestion': true,
+  'groups:dismissSuggestion': true,
   'transcript:get': true,
   'transcript:start': true,
   'transcript:cancel': true,

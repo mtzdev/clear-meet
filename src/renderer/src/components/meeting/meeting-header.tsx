@@ -1,10 +1,12 @@
 import { ChevronLeft, FolderOpen, LoaderCircle, Pencil, VideoOff } from 'lucide-react'
 import { useRef, useState, type FormEvent } from 'react'
+import { MeetingGroup } from '@/components/groups/meeting-group'
 import { SourceIcon } from '@/components/meeting/source-icon'
 import { MeetingTags } from '@/components/tags/meeting-tags'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatDateTime, formatDuration } from '@/lib/format'
+import { useGroups } from '@/lib/groups'
 import { SOURCE_KIND_LABEL } from '@/lib/meeting-text'
 import type { MeetingDetail } from '@shared/library'
 
@@ -13,7 +15,7 @@ const MAX_NAME_LENGTH = 120
 interface MeetingHeaderProps {
   detail: MeetingDetail
   canRename: boolean
-  /** Motivo de a Reunião não aceitar Tags agora, ou `null`. */
+  /** Motivo de a Reunião não aceitar Tags nem troca de grupo agora, ou `null`. */
   tagsBlockedReason: string | null
   onRename: (name: string) => Promise<string | null>
   /** Ação "Apagar só o vídeo"; `blockedReason` desabilita o botão e explica o motivo. */
@@ -31,6 +33,7 @@ export function MeetingHeader({
   const [name, setName] = useState(detail.name)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { overview } = useGroups()
   /** Evita confirmar duas vezes (Enter e depois o blur) ou confirmar após Esc. */
   const busy = useRef(false)
 
@@ -130,6 +133,13 @@ export function MeetingHeader({
             {SOURCE_KIND_LABEL[detail.source.kind]}
             {meta ? ` · ${meta}` : ''}
           </span>
+          <MeetingGroup
+            folder={detail.folder}
+            groupId={detail.groupId}
+            overview={overview}
+            blockedReason={tagsBlockedReason}
+            className="ml-1"
+          />
         </p>
       </div>
 

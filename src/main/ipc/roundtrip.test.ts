@@ -102,6 +102,28 @@ function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
       rename: (_from, to) => Promise.resolve({ ok: true, value: { name: to, updated: 0 } }),
       delete: () => Promise.resolve({ ok: true, value: { updated: 0 } })
     },
+    groups: {
+      list: () =>
+        Promise.resolve({
+          editable: true,
+          message: null,
+          groups: [],
+          ungroupedCount: 0,
+          suggestions: []
+        }),
+      create: () =>
+        Promise.resolve({ ok: false, error: { code: 'unknown', message: 'não implementado' } }),
+      update: () =>
+        Promise.resolve({ ok: false, error: { code: 'unknown', message: 'não implementado' } }),
+      delete: () => Promise.resolve({ ok: true, value: { updated: 0 } }),
+      reorder: () => Promise.resolve(ok),
+      preview: () => Promise.resolve({ matching: 0 }),
+      setGroup: () => Promise.resolve({ ok: true, value: { updated: 0 } }),
+      autoAssign: () => Promise.resolve({ ok: true, value: { groupId: null } }),
+      acceptSuggestion: () =>
+        Promise.resolve({ ok: false, error: { code: 'unknown', message: 'não implementado' } }),
+      dismissSuggestion: () => Promise.resolve(ok)
+    },
     transcript: {
       get: () => Promise.resolve({ ok: true, value: null }),
       start: () => Promise.resolve(ok),
@@ -289,6 +311,7 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
       await api.invoke('library:search', {
         text: 'abc',
         tags: [],
+        groupId: null,
         fromMs: null,
         toMs: null,
         sort: 'newest',
@@ -471,6 +494,40 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
     emit('chat:event', { type: 'delta', meetingId: 'm', messageId: 'a1', text: 'oi' })
     expect(received).toEqual(['running', 'delta'])
   })
+  it('os canais de grupos chegam aos handlers com os dados do pedido', async () => {
+    const calls: unknown[] = []
+    const { api } = createWiredApi(
+      fakeDeps({
+        groups: {
+          ...fakeDeps().groups,
+          create: (input, applyNow) => {
+            calls.push(['create', input, applyNow])
+            return Promise.resolve({ ok: false, error: { code: 'busy', message: 'x' } })
+          },
+          setGroup: (folders, groupId) => {
+            calls.push(['setGroup', folders, groupId])
+            return Promise.resolve({ ok: true, value: { updated: folders.length } })
+          }
+        }
+      })
+    )
+    await api.invoke('groups:create', {
+      name: 'Daily',
+      description: '',
+      rules: null,
+      applyNow: true
+    })
+    expect(await api.invoke('groups:setGroup', { folders: ['A', 'B'], groupId: 'g1' })).toEqual({
+      ok: true,
+      value: { updated: 2 }
+    })
+    expect(calls).toEqual([
+      ['create', { name: 'Daily', description: '', rules: null, applyNow: true }, true],
+      ['setGroup', ['A', 'B'], 'g1']
+    ])
+    expect(await api.invoke('groups:list', { recheck: false })).toMatchObject({ editable: true })
+  })
+
   it('enquanto a pasta das Reuniões é trocada, os canais que mexem nas pastas respondem "busy"', async () => {
     const started: string[] = []
     const { api } = createWiredApi(
@@ -498,6 +555,9 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
     expect(await api.invoke('transcript:start', { folder: 'F', requestSummary: false })).toEqual(
       blocked
     )
+    expect(await api.invoke('groups:setGroup', { folders: ['F'], groupId: null })).toEqual(blocked)
+    expect(await api.invoke('groups:delete', { id: 'g1' })).toEqual(blocked)
+    expect(await api.invoke('groups:autoAssign', { folder: 'F' })).toEqual(blocked)
     expect(started).toEqual([])
     // Consultas e a própria troca de pasta continuam disponíveis.
     expect(await api.invoke('meetingsDir:cancel')).toBeNull()

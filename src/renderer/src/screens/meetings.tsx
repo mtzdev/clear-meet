@@ -1,191 +1,74 @@
-import { HardDrive, Library, SearchX, TriangleAlert } from 'lucide-react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { EmptyState } from '@/components/empty-state'
+import { HardDrive } from 'lucide-react'
+import { useState } from 'react'
+import { GroupsPanel } from '@/components/groups/groups-overview'
 import { Screen } from '@/components/layout/screen'
 import { CleanupDialog } from '@/components/library/cleanup-dialog'
-import { LibraryFilters } from '@/components/library/filters'
-import { MeetingCard } from '@/components/library/meeting-card'
-import { TagFilter } from '@/components/library/tag-filter'
+import { LibraryBrowser } from '@/components/library/library-browser'
 import { Button } from '@/components/ui/button'
-import { dateRange, NO_DATE_FILTER, type DateFilter } from '@/lib/date-range'
-import { useDebounced, useLibraryQuery } from '@/lib/library'
-import { useTags } from '@/lib/tags'
-import { hasTag } from '@shared/tags'
-import type { LibraryQuery, LibrarySort } from '@shared/library'
+import { useGroups } from '@/lib/groups'
+import {
+  GROUPS_VIEW_HREF,
+  hrefFor,
+  useMeetingsGroup,
+  useMeetingsView,
+  type MeetingsView
+} from '@/lib/router'
+import { cn } from '@/lib/utils'
 
-const SEARCH_DEBOUNCE_MS = 250
+const VIEWS: { view: MeetingsView; label: string; href: string }[] = [
+  { view: 'all', label: 'Todas', href: hrefFor('meetings') },
+  { view: 'groups', label: 'Grupos', href: GROUPS_VIEW_HREF }
+]
 
-/** Centraliza um estado vazio abaixo da barra de filtros. */
-function Centered({ children }: { children: ReactNode }) {
-  return <div className="min-h-[24rem]">{children}</div>
+/** Alternância "Todas | Grupos" da tela Reuniões (a aba fica no endereço, então o Voltar a respeita). */
+function ViewSwitch({ view }: { view: MeetingsView }) {
+  return (
+    <nav
+      aria-label="Ver Reuniões"
+      className="bg-muted text-muted-foreground inline-flex h-8 items-center rounded-lg p-[3px]"
+    >
+      {VIEWS.map((item) => (
+        <a
+          key={item.view}
+          href={item.href}
+          aria-current={item.view === view ? 'page' : undefined}
+          className={cn(
+            'focus-visible:ring-ring/60 inline-flex h-full items-center rounded-md px-3 text-sm font-medium outline-none focus-visible:ring-2',
+            item.view === view ? 'bg-background text-foreground shadow-sm' : 'hover:text-foreground'
+          )}
+        >
+          {item.label}
+        </a>
+      ))}
+    </nav>
+  )
 }
 
-/** Lista e busca de Reuniões (nome, conversa, Anotações e Resumo), com filtro de datas. */
+/** Reuniões: a lista geral (busca e filtros) ou os grupos. */
 export function MeetingsScreen() {
-  const [text, setText] = useState('')
-  const [date, setDate] = useState<DateFilter>(NO_DATE_FILTER)
-  const [sortChoice, setSortChoice] = useState<LibrarySort | null>(null)
+  const view = useMeetingsView()
+  const group = useMeetingsGroup()
   const [cleaning, setCleaning] = useState(false)
-  const [selectedTags, setSelectedTags] = useState<string[]>([])
-  const { tags } = useTags()
-
-  // Pastas mexidas fora do app aparecem ao abrir a tela.
-  useEffect(() => {
-    void window.api.invoke('library:refresh')
-  }, [])
-
-  const debouncedText = useDebounced(text.trim(), SEARCH_DEBOUNCE_MS)
-  const searching = text.trim() !== ''
-  const sort: LibrarySort =
-    sortChoice === 'relevance' && !searching
-      ? 'newest'
-      : (sortChoice ?? (searching ? 'relevance' : 'newest'))
-
-  const range = useMemo(
-    () => dateRange(date, new Date()),
-    // O intervalo é calculado quando o filtro muda, não a cada renderização.
-    [date]
-  )
-  // Uma Tag apagada ou renomeada deixa de valer no filtro.
-  const activeTags = useMemo(
-    () =>
-      tags === null
-        ? selectedTags
-        : selectedTags.filter((name) =>
-            hasTag(
-              tags.map((t) => t.name),
-              name
-            )
-          ),
-    [tags, selectedTags]
-  )
-  const query: LibraryQuery = {
-    text: debouncedText,
-    tags: activeTags,
-    fromMs: range.fromMs,
-    toMs: range.toMs,
-    sort,
-    limit: null
-  }
-  const library = useLibraryQuery(query)
-  const { data } = library
-
-  const filtered = searching || date.preset !== 'all' || activeTags.length > 0
-  const clearFilters = (): void => {
-    setText('')
-    setDate(NO_DATE_FILTER)
-    setSelectedTags([])
-    setSortChoice(null)
-  }
+  const groups = useGroups()
 
   return (
     <Screen
       title="Reuniões"
       actions={
-        <Button variant="outline" size="sm" onClick={() => setCleaning(true)}>
-          <HardDrive aria-hidden />
-          Liberar espaço
-        </Button>
+        <div className="flex items-center gap-3">
+          <ViewSwitch view={view} />
+          <Button variant="outline" size="sm" onClick={() => setCleaning(true)}>
+            <HardDrive aria-hidden />
+            Liberar espaço
+          </Button>
+        </div>
       }
     >
       <CleanupDialog open={cleaning} onOpenChange={setCleaning} />
-      <div className="bg-background/95 border-border sticky top-0 z-20 border-b backdrop-blur">
-        <div className="mx-auto max-w-4xl px-8 py-4">
-          <LibraryFilters
-            text={text}
-            onText={setText}
-            date={date}
-            onDate={setDate}
-            sort={sort}
-            onSort={setSortChoice}
-            searching={searching}
-          />
-          {tags !== null && tags.length > 0 && (
-            <div className="mt-3">
-              <TagFilter tags={tags} selected={activeTags} onChange={setSelectedTags} />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {data === null && library.error !== null && (
-        <Centered>
-          <EmptyState
-            icon={TriangleAlert}
-            title="Não foi possível listar as Reuniões"
-            description={library.error}
-            action={
-              <Button variant="outline" onClick={library.reload}>
-                Tentar de novo
-              </Button>
-            }
-          />
-        </Centered>
-      )}
-      {data === null && library.error === null && (
-        <p className="text-muted-foreground px-8 py-6 text-sm">Carregando as Reuniões…</p>
-      )}
-
-      {data !== null && data.indexed === 0 && data.updating && (
-        <p className="text-muted-foreground px-8 py-6 text-sm">Carregando as Reuniões…</p>
-      )}
-      {data !== null && data.indexed === 0 && !data.updating && (
-        <Centered>
-          <EmptyState
-            icon={Library}
-            title="Nenhuma Reunião ainda"
-            description="As Reuniões gravadas aparecem aqui, da mais recente para a mais antiga."
-            action={
-              <Button asChild variant="outline">
-                <a href="#/record">Ir para Gravar</a>
-              </Button>
-            }
-          />
-        </Centered>
-      )}
-      {data !== null && data.indexed > 0 && data.entries.length === 0 && (
-        <Centered>
-          <EmptyState
-            icon={SearchX}
-            title="Nenhuma Reunião encontrada"
-            description="Tente outras palavras, outras Tags ou mude o período."
-            action={
-              filtered ? (
-                <Button variant="outline" onClick={clearFilters}>
-                  Limpar filtros
-                </Button>
-              ) : undefined
-            }
-          />
-        </Centered>
-      )}
-      {data !== null && data.entries.length > 0 && (
-        <div className="mx-auto max-w-4xl space-y-4 px-8 py-5">
-          {filtered && (
-            <p className="text-muted-foreground text-xs" role="status">
-              {data.total} {data.total === 1 ? 'Reunião encontrada' : 'Reuniões encontradas'}
-            </p>
-          )}
-          <ul className="space-y-2.5">
-            {data.entries.map((entry) => (
-              <MeetingCard key={entry.meeting.id} entry={entry} />
-            ))}
-          </ul>
-          {data.total > data.entries.length && (
-            <p className="text-muted-foreground text-xs">
-              Mostrando {data.entries.length} de {data.total} Reuniões. Refine a busca para ver as
-              demais.
-            </p>
-          )}
-          {data.skipped > 0 && (
-            <p className="text-muted-foreground text-xs">
-              {data.skipped === 1
-                ? '1 pasta foi ignorada porque não pôde ser lida.'
-                : `${data.skipped} pastas foram ignoradas porque não puderam ser lidas.`}{' '}
-              Nada foi alterado nelas.
-            </p>
-          )}
-        </div>
+      {view === 'groups' ? (
+        <GroupsPanel state={groups} />
+      ) : (
+        <LibraryBrowser key={group ?? 'all'} initialGroup={group} />
       )}
     </Screen>
   )

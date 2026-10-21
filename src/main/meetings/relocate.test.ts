@@ -96,6 +96,8 @@ describe('listMeetingFolders', () => {
     await writeFile(join(from, 'outra-coisa', 'x.txt'), 'x')
     await mkdir(join(from, '.excluindo-123'))
     await writeFile(join(from, '.excluindo-123', 'meeting.json'), '{}')
+    await mkdir(join(from, '.clearmeet'))
+    await writeFile(join(from, '.clearmeet', 'meeting.json'), '{}')
     await writeFile(join(from, 'solto.txt'), 'x')
 
     const list = await listMeetingFolders(from)

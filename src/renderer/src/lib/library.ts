@@ -33,7 +33,7 @@ export function useLibraryQuery(query: LibraryQuery): LibraryQueryState {
   const [version, setVersion] = useState(0)
   const latest = useRef(0)
 
-  const { text, fromMs, toMs, sort, limit } = query
+  const { text, groupId, fromMs, toMs, sort, limit } = query
   // A lista de Tags vira texto para a consulta só se repetir quando o filtro muda de verdade.
   const tagsKey = query.tags.join('\u0000')
 
@@ -46,7 +46,8 @@ export function useLibraryQuery(query: LibraryQuery): LibraryQueryState {
         fromMs,
         toMs,
         sort,
-        limit
+        limit,
+        groupId
       })
       .then(
         (result) => {
@@ -59,7 +60,7 @@ export function useLibraryQuery(query: LibraryQuery): LibraryQueryState {
           setError(failure instanceof Error ? failure.message : String(failure))
         }
       )
-  }, [text, tagsKey, fromMs, toMs, sort, limit, version])
+  }, [text, tagsKey, groupId, fromMs, toMs, sort, limit, version])
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined

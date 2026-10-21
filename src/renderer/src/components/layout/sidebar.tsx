@@ -71,7 +71,11 @@ export function Sidebar({ route }: { route: Route }) {
         <AudioLines className="size-5" />
       </div>
       {MAIN_ITEMS.map((item) => (
-        <NavLink key={item.route} item={item} active={route === item.route} />
+        <NavLink
+          key={item.route}
+          item={item}
+          active={route === item.route || (item.route === 'meetings' && route === 'group')}
+        />
       ))}
       <div className="mt-auto">
         <NavLink item={SETTINGS_ITEM} active={route === SETTINGS_ITEM.route} />

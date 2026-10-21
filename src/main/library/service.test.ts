@@ -67,6 +67,7 @@ function createService(overrides: Partial<LibraryServiceDeps> = {}): Harness {
     thumbnailsDir: join(userData, 'thumbnails'),
     meetingsDir: () => root,
     activeFolder: () => null,
+    groupIds: () => Promise.resolve([]),
     loadSqlite: () => Promise.resolve(sqlite),
     getTools: () => Promise.resolve(tools),
     canMakeThumbnails: () => true,
@@ -112,6 +113,7 @@ describe('normalizeQuery', () => {
       normalizeQuery({
         text: 'x'.repeat(500),
         tags: ['Daily', 'daily', 'Diária'],
+        groupId: null,
         fromMs: Number.NaN,
         toMs: 5,
         sort: 'invalida' as LibraryQuery['sort'],
@@ -120,6 +122,7 @@ describe('normalizeQuery', () => {
     ).toEqual({
       text: 'x'.repeat(200),
       tagKeys: ['daily', 'diaria'],
+      groupId: null,
       fromMs: null,
       toMs: 5,
       sort: 'newest',
@@ -928,5 +931,117 @@ suite('Tags', () => {
     await service.refresh(join(root, 'c'))
     await service.settled()
     expect((await service.tagCounts()).map((tag) => tag.name)).not.toContain('Sprint')
+  })
+})
+
+suite('Grupos', () => {
+  const VALID = ['g1', 'g2']
+
+  async function populate(): Promise<LibraryService> {
+    await createFolder(
+      root,
+      'a',
+      spec('a', 'Planejamento', 10, { meeting: { groupId: 'g1', durationMs: 60_000 } })
+    )
+    await createFolder(
+      root,
+      'b',
+      spec('b', 'Revisão', 11, { meeting: { groupId: 'g1', durationMs: 120_000 } })
+    )
+    await createFolder(root, 'c', spec('c', 'Retro', 12, { meeting: { groupId: 'g2' } }))
+    await createFolder(
+      root,
+      'd',
+      spec('d', 'Grupo apagado', 13, { meeting: { groupId: 'apagado' } })
+    )
+    await createFolder(root, 'e', spec('e', 'Sem grupo', 14))
+    const { service } = createService({ groupIds: () => Promise.resolve(VALID) })
+    await sync(service)
+    return service
+  }
+
+  it('a lista traz o grupo de cada Reunião; grupo que não existe conta como sem grupo', async () => {
+    const service = await populate()
+    const result = await service.search(query())
+    const groups = Object.fromEntries(
+      result.entries.map((entry) => [entry.meeting.id, entry.meeting.groupId])
+    )
+    expect(groups).toEqual({ a: 'g1', b: 'g1', c: 'g2', d: null, e: null })
+  })
+
+  it('filtra por grupo e por "sem grupo"', async () => {
+    const service = await populate()
+    expect(await names(service, { groupId: 'g1' })).toEqual(['Revisão', 'Planejamento'])
+    expect(await names(service, { groupId: 'g2' })).toEqual(['Retro'])
+    expect(await names(service, { groupId: 'none' })).toEqual(['Sem grupo', 'Grupo apagado'])
+    expect((await service.search(query({ groupId: 'g1' }))).total).toBe(2)
+    expect((await service.search(query({ groupId: 'g1' }))).indexed).toBe(5)
+  })
+
+  it('combina com a busca, as Tags e as datas', async () => {
+    const service = await populate()
+    expect(await names(service, { groupId: 'g1', text: 'revisao' })).toEqual(['Revisão'])
+    expect(await names(service, { groupId: 'g1', fromMs: Date.parse(days(11)) })).toEqual([
+      'Revisão'
+    ])
+    expect(await names(service, { groupId: 'g1', tags: ['nenhuma'] })).toEqual([])
+  })
+
+  it('soma contagem, duração e última Reunião de cada grupo', async () => {
+    const service = await populate()
+    const stats = await service.groupStats()
+    expect(stats.get('g1')).toEqual({
+      count: 2,
+      totalDurationMs: 180_000,
+      lastMs: Date.parse(days(11))
+    })
+    expect(stats.get('g2')?.count).toBe(1)
+  })
+
+  it('entrega as Reuniões para as regras com Tags, Fonte e só grupos que existem', async () => {
+    const service = await populate()
+    const meetings = await service.indexedMeetings()
+    const d = meetings.find((meeting) => meeting.id === 'd')
+    expect(d).toMatchObject({
+      groupId: null,
+      sourceName: 'Zoom',
+      sourceKind: 'window',
+      folder: join(root, 'd')
+    })
+    expect(meetings.find((meeting) => meeting.id === 'a')?.groupId).toBe('g1')
+  })
+
+  it('mudar o grupo no meeting.json aparece depois do refresh e sobrevive a reconstruir o índice', async () => {
+    const service = await populate()
+    const folder = join(root, 'e')
+    const read = await readMeeting(folder)
+    if (!read.ok) throw new Error(read.error)
+    await writeMeeting(folder, { ...read.value, groupId: 'g2' })
+    await service.refresh(folder)
+    await service.settled()
+    expect(await names(service, { groupId: 'g2' })).toEqual(['Sem grupo', 'Retro'])
+
+    await service.close()
+    await rm(join(userData, 'library.db'))
+    const second = createService({ groupIds: () => Promise.resolve(VALID) })
+    await sync(second.service)
+    expect(await names(second.service, { groupId: 'g2' })).toEqual(['Sem grupo', 'Retro'])
+  })
+
+  it('a pasta .clearmeet não é Reunião: nem indexada nem contada como ignorada', async () => {
+    await createFolder(root, 'a', spec('a', 'Planejamento', 10))
+    await mkdir(join(root, '.clearmeet'))
+    await writeFile(join(root, '.clearmeet', 'groups.json'), '{"groups":[]}')
+    // Mesmo com um meeting.json lá dentro, a pasta reservada nunca vira Reunião.
+    await writeFile(
+      join(root, '.clearmeet', MEETING_FILE),
+      JSON.stringify(makeMeeting({ id: 'fantasma', name: 'Fantasma' }))
+    )
+    const { service } = createService()
+    await sync(service)
+    const result = await service.search(query())
+    expect(result.entries.map((entry) => entry.meeting.name)).toEqual(['Planejamento'])
+    expect(result.indexed).toBe(1)
+    expect(result.skipped).toBe(0)
   })
 })

@@ -1,5 +1,6 @@
 import { isQualityPreset, type QualityPreset } from './capture'
 import { parseCompactionMeta, type CompactionMeta } from './compaction'
+import { parseGroupId } from './groups'
 import { parseSummaryMeta, type SummaryMeta } from './summary'
 import { parseTagList } from './tags'
 import { parseTranscriptMeta, type TranscriptMeta } from './transcript'
@@ -93,6 +94,8 @@ export interface MeetingFile {
   summary?: SummaryMeta
   /** Tags da Reunião; ausente = nenhuma. Arquivos antigos, sem o campo, continuam válidos. */
   tags?: string[]
+  /** Grupo da Reunião (no máximo um); ausente, ou de um grupo que não existe, = sem grupo. */
+  groupId?: string
 }
 
 export function meetingTags(meeting: Pick<MeetingFile, 'tags'>): string[] {
@@ -269,6 +272,8 @@ export function parseMeeting(raw: unknown): ParseResult<MeetingFile> {
   if (summary) meeting.summary = summary
   const tags = parseTagList(raw.tags)
   if (tags.length > 0) meeting.tags = tags
+  const groupId = parseGroupId(raw.groupId)
+  if (groupId !== null) meeting.groupId = groupId
   return { ok: true, value: meeting }
 }
 

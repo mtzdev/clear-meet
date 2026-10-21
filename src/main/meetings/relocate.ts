@@ -8,7 +8,7 @@ import type { RecordingError, Result } from '@shared/recording'
 import type { RelocationIssue, RelocationIssueReason } from '@shared/relocation'
 import { removeWithRetry, renameWithRetry } from '../fs/atomic'
 import { sameFolder } from './paths'
-import { isStagingName } from './repository'
+import { isIgnoredFolderName } from './repository'
 
 export interface RelocateOps {
   /** Move uma pasta inteira (mesmo volume). Falha com `EXDEV` entre volumes. */
@@ -152,7 +152,7 @@ export async function listMeetingFolders(root: string): Promise<MeetingFolderInf
   }
   const found: MeetingFolderInfo[] = []
   for (const entry of entries) {
-    if (!entry.isDirectory() || isStagingName(entry.name)) continue
+    if (!entry.isDirectory() || isIgnoredFolderName(entry.name)) continue
     const folder = join(root, entry.name)
     if (!(await isFile(join(folder, MEETING_FILE)))) continue
     found.push({ name: entry.name, folder, bytes: await sizeOf(folder) })

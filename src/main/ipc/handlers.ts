@@ -4,6 +4,7 @@ import type { CleanupPreview, CleanupRequest, CleanupResult } from '@shared/clea
 import type { ContentArea } from '@shared/content-area'
 import type { FfmpegInstallState, FfmpegStatus } from '@shared/ffmpeg'
 import type { FloatingInfo } from '@shared/floating'
+import type { GroupInput, GroupsOverview, GroupWithApplied } from '@shared/groups'
 import type { IpcChannel, IpcHandlers } from '@shared/ipc'
 import type { LibraryQuery, LibraryResult, MeetingDetail } from '@shared/library'
 import type { MeetingNote } from '@shared/meeting'
@@ -70,6 +71,18 @@ export interface HandlerDeps {
     create(name: string): Promise<Result<TagInfo>>
     rename(from: string, to: string): Promise<Result<{ name: string; updated: number }>>
     delete(name: string): Promise<Result<{ updated: number }>>
+  }
+  groups: {
+    list(recheck: boolean): Promise<GroupsOverview>
+    create(input: GroupInput, applyNow: boolean): Promise<Result<GroupWithApplied>>
+    update(id: string, input: GroupInput, applyNow: boolean): Promise<Result<GroupWithApplied>>
+    delete(id: string): Promise<Result<{ updated: number }>>
+    reorder(ids: string[]): Promise<Result<null>>
+    preview(id: string | null, rules: GroupInput['rules']): Promise<{ matching: number }>
+    setGroup(folders: string[], groupId: string | null): Promise<Result<{ updated: number }>>
+    autoAssign(folder: string): Promise<Result<{ groupId: string | null }>>
+    acceptSuggestion(id: string): Promise<Result<GroupWithApplied>>
+    dismissSuggestion(id: string): Promise<Result<null>>
   }
   transcript: {
     get(folder: string): Promise<Result<TranscriptFile | null>>
@@ -140,6 +153,14 @@ const FOLDER_CHANNELS = [
   'tags:create',
   'tags:rename',
   'tags:delete',
+  'groups:create',
+  'groups:update',
+  'groups:delete',
+  'groups:reorder',
+  'groups:setGroup',
+  'groups:autoAssign',
+  'groups:acceptSuggestion',
+  'groups:dismissSuggestion',
   'compaction:retry',
   'cleanup:run',
   'transcript:start',
@@ -207,6 +228,17 @@ export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
     'tags:create': (request) => deps.tags.create(request.name),
     'tags:rename': (request) => deps.tags.rename(request.from, request.to),
     'tags:delete': (request) => deps.tags.delete(request.name),
+    'groups:list': (request) => deps.groups.list(request?.recheck === true),
+    'groups:create': (request) => deps.groups.create(request, request?.applyNow === true),
+    'groups:update': (request) =>
+      deps.groups.update(request.id, request, request?.applyNow === true),
+    'groups:delete': (request) => deps.groups.delete(request.id),
+    'groups:reorder': (request) => deps.groups.reorder(request.ids),
+    'groups:preview': (request) => deps.groups.preview(request.id, request.rules),
+    'groups:setGroup': (request) => deps.groups.setGroup(request.folders, request.groupId),
+    'groups:autoAssign': (request) => deps.groups.autoAssign(request.folder),
+    'groups:acceptSuggestion': (request) => deps.groups.acceptSuggestion(request.id),
+    'groups:dismissSuggestion': (request) => deps.groups.dismissSuggestion(request.id),
     'transcript:get': (request) => deps.transcript.get(request.folder),
     'transcript:start': (request) =>
       deps.transcript.start(request.folder, request.requestSummary, request.model),

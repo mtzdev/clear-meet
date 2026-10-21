@@ -75,7 +75,8 @@ describe('checkMeetingFolder', () => {
     const file = join(root, 'arquivo')
     await writeFile(file, 'x')
     const staging = await createMeeting(`${STAGING_PREFIX}1`)
-    for (const folder of [empty, file, staging]) {
+    const groups = await createMeeting('.clearmeet')
+    for (const folder of [empty, file, staging, groups]) {
       expect((await checkMeetingFolder(root, folder)).ok).toBe(false)
     }
   })

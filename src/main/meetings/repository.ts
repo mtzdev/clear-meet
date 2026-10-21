@@ -8,6 +8,7 @@ import {
   type MeetingFile,
   type ParseResult
 } from '@shared/meeting'
+import { GROUPS_DIR } from '@shared/groups'
 import type { RecordingError, RenamedMeeting, Result } from '@shared/recording'
 import { renameWithRetry, retryTransient, writeFileAtomic } from '../fs/atomic'
 import { meetingFolderBase, sanitizeName, withSuffix } from './folder-name'
@@ -66,12 +67,17 @@ export function isStagingName(name: string): boolean {
   return name.startsWith(STAGING_PREFIX)
 }
 
+/** Pastas da raiz que nunca são Reuniões: a de exclusão em andamento e a dos grupos (`.clearmeet`). */
+export function isIgnoredFolderName(name: string): boolean {
+  return isStagingName(name) || name.toLowerCase() === GROUPS_DIR
+}
+
 /** Pastas diretamente dentro de `root` (cada uma pode ser uma Reunião). Raiz inexistente = lista vazia. */
 export async function listMeetingFolders(root: string): Promise<string[]> {
   try {
     const entries = await readdir(root, { withFileTypes: true })
     return entries
-      .filter((entry) => entry.isDirectory() && !isStagingName(entry.name))
+      .filter((entry) => entry.isDirectory() && !isIgnoredFolderName(entry.name))
       .map((entry) => join(root, entry.name))
   } catch {
     return []

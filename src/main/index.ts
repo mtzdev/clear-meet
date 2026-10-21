@@ -54,6 +54,8 @@ import { createRecordingTray } from './floating/tray'
 import { createBarWindow, createNoteWindow, readDisplays } from './floating/windows'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
+import { GroupService } from './groups/service'
+import { GroupStore } from './groups/store'
 import { LibraryService } from './library/service'
 import { TagCatalog } from './tags/catalog'
 import { TagService } from './tags/service'
@@ -148,6 +150,7 @@ if (!app.requestSingleInstanceLock()) {
   let recording: RecordingService | null = null
   let floating: FloatingController | null = null
   let library: LibraryService | null = null
+  let groups: GroupService | null = null
   let compaction: CompactionService | null = null
 
   /** Traz a janela principal para a frente (ela fica oculta enquanto a barra flutuante grava). */
@@ -230,6 +233,7 @@ if (!app.requestSingleInstanceLock()) {
       if (event === 'recording:state') {
         floating?.onRecordingState(payload as RecordingState)
         library?.onRecordingState(payload as RecordingState)
+        groups?.onRecordingState(payload as RecordingState)
         compaction?.onRecordingState(payload as RecordingState)
       }
     }
@@ -261,11 +265,13 @@ if (!app.requestSingleInstanceLock()) {
     })
     recording = service
 
+    const groupStore = new GroupStore(meetingsDir)
     const libraryIndex = new LibraryService({
       dbPath: join(app.getPath('userData'), 'library.db'),
       thumbnailsDir,
       meetingsDir,
       activeFolder: () => service.activeFolder(),
+      groupIds: () => groupStore.ids(),
       loadSqlite,
       getTools,
       // As miniaturas esperam a gravação terminar para não disputar a máquina com ela.
@@ -351,6 +357,9 @@ if (!app.requestSingleInstanceLock()) {
         if (!report.running && report.checkedAt !== null) {
           void libraryIndex.reconcile({ force: true })
           void compactor.scan()
+          for (const item of report.items) {
+            if (item.outcome === 'recovered') void groupService.autoAssign(item.folder)
+          }
         }
       },
       now: () => Date.now(),
@@ -438,6 +447,19 @@ if (!app.requestSingleInstanceLock()) {
       refresh: (folder) => libraryIndex.refresh(folder),
       emitChanged: () => sendToRenderer('library:changed', null)
     })
+
+    const groupService = new GroupService({
+      store: groupStore,
+      meetingsDir,
+      meetings: () => libraryIndex.indexedMeetings(),
+      stats: () => libraryIndex.groupStats(),
+      refresh: (folder) => libraryIndex.refresh(folder),
+      emitChanged: () => sendToRenderer('library:changed', null),
+      newId: () => randomUUID(),
+      now: () => Date.now(),
+      log
+    })
+    groups = groupService
 
     const cleanup = new CleanupService({
       olderThan: (cutoffMs) => libraryIndex.olderThan(cutoffMs),
@@ -689,6 +711,18 @@ if (!app.requestSingleInstanceLock()) {
           create: (name) => tags.create(name),
           rename: (from, to) => tags.rename(from, to),
           delete: (name) => tags.delete(name)
+        },
+        groups: {
+          list: (recheck) => groupService.overview(recheck),
+          create: (input, applyNow) => groupService.create(input, applyNow),
+          update: (id, input, applyNow) => groupService.update(id, input, applyNow),
+          delete: (id) => groupService.delete(id),
+          reorder: (ids) => groupService.reorder(ids),
+          preview: (id, rules) => groupService.preview(rules, id),
+          setGroup: (folders, groupId) => groupService.setGroup(folders, groupId),
+          autoAssign: (folder) => groupService.autoAssign(folder),
+          acceptSuggestion: (id) => groupService.acceptSuggestion(id),
+          dismissSuggestion: (id) => groupService.dismissSuggestion(id)
         },
         transcript: {
           get: async (folder) => {

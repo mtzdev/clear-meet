@@ -5,6 +5,7 @@ import { UpdateBanner } from '@/components/layout/update-banner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useRecordingState } from '@/lib/recording'
 import { navigate, useRoute, type Route } from '@/lib/router'
+import { GroupScreen } from '@/screens/group'
 import { MeetingScreen } from '@/screens/meeting'
 import { MeetingsScreen } from '@/screens/meetings'
 import { RecordScreen } from '@/screens/record'
@@ -14,6 +15,7 @@ const SCREENS: Record<Route, () => ReactElement> = {
   record: RecordScreen,
   meetings: MeetingsScreen,
   meeting: MeetingScreen,
+  group: GroupScreen,
   settings: SettingsScreen
 }
 
