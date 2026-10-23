@@ -93,6 +93,13 @@ export interface HitRow {
   body: string
 }
 
+export interface RelevanceRow {
+  meetingId: string
+  offsetMs: number | null
+  /** bm25 do trecho: quanto menor (mais negativo), melhor. */
+  rank: number
+}
+
 export interface PendingThumbnail {
   id: string
   folderName: string
@@ -581,6 +588,25 @@ export class LibraryDb {
       result.set(id, entry)
     }
     return result
+  }
+
+  /** Os `perMeeting` trechos que melhor casam com a busca `fts` em cada uma das Reuniões, melhores primeiro. */
+  relevance(fts: string, meetingIds: readonly string[], perMeeting: number): RelevanceRow[] {
+    if (meetingIds.length === 0) return []
+    const marks = meetingIds.map(() => '?').join(', ')
+    return this.all(
+      `SELECT meeting_id, offset_ms, rank FROM (
+         SELECT f.meeting_id AS meeting_id, f.offset_ms AS offset_ms, fragments_fts.rank AS rank,
+                ROW_NUMBER() OVER (PARTITION BY f.meeting_id ORDER BY fragments_fts.rank) AS n
+         FROM fragments_fts JOIN fragments f ON f.id = fragments_fts.rowid
+         WHERE fragments_fts MATCH ? AND f.meeting_id IN (${marks})
+       ) WHERE n <= ? ORDER BY meeting_id, n`,
+      [fts, ...meetingIds, perMeeting]
+    ).map((row) => ({
+      meetingId: row['meeting_id'] as string,
+      offsetMs: (row['offset_ms'] as number | null) ?? null,
+      rank: row['rank'] as number
+    }))
   }
 }
 

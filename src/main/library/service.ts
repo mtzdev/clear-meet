@@ -8,6 +8,7 @@ import {
   type MeetingListItem,
   type SearchHit
 } from '@shared/library'
+import type { MeetingRelevance, ScopeCandidate } from '@shared/group-chat'
 import type { SuggestionSubject } from '@shared/group-suggestions'
 import { UNGROUPED_FILTER } from '@shared/groups'
 import {
@@ -76,6 +77,17 @@ export interface LibraryServiceDeps {
 }
 
 const UNAVAILABLE = 'Não foi possível abrir o índice das Reuniões.'
+
+/** Uma Reunião de um grupo para o escopo das perguntas, com a pasta onde ela está. */
+export interface GroupMeetingRef extends ScopeCandidate {
+  folder: string
+}
+
+/** Trechos considerados ao medir quanto uma Reunião casa com uma pergunta. */
+const RELEVANCE_HITS = 12
+const RELEVANCE_SCORED_HITS = 3
+/** Reuniões de um grupo oferecidas no escopo das perguntas (as mais recentes). */
+const GROUP_MEETINGS_LIMIT = 300
 
 /** Uma Reunião do índice com o que os grupos precisam dela. */
 export interface IndexedMeeting extends SuggestionSubject {
@@ -340,6 +352,56 @@ export class LibraryService {
       tags: tags.get(row.id) ?? [],
       groupId: row.groupId !== null && valid.has(row.groupId) ? row.groupId : null
     }))
+  }
+
+  /** Reuniões do grupo, da mais recente para a mais antiga, com a situação da Transcrição. */
+  async groupMeetings(groupId: string): Promise<GroupMeetingRef[]> {
+    const db = await this.open()
+    if (!db) return []
+    const root = this.deps.meetingsDir()
+    const { rows } = db.query({
+      fts: null,
+      fromMs: null,
+      toMs: null,
+      tagKeys: [],
+      group: { kind: 'id', id: groupId },
+      sort: 'newest',
+      limit: GROUP_MEETINGS_LIMIT
+    })
+    return rows.map((row) => ({
+      id: row.id,
+      folder: join(root, row.folderName),
+      name: row.name,
+      createdAt: row.createdAt,
+      durationMs: row.durationMs,
+      hasTranscript: row.status === 'ready' && row.transcriptStatus === 'ready'
+    }))
+  }
+
+  /**
+   * Quanto cada Reunião casa com a busca `fts` (qualquer palavra) e em que Instantes, pelo
+   * ranking do FTS5 existente. Reunião sem nenhum trecho que case fica de fora do resultado.
+   */
+  async relevanceFor(
+    meetingIds: readonly string[],
+    fts: string
+  ): Promise<Map<string, MeetingRelevance>> {
+    const db = await this.open()
+    const found = new Map<string, MeetingRelevance>()
+    if (!db) return found
+    const scores = new Map<string, number[]>()
+    for (const row of db.relevance(fts, meetingIds, RELEVANCE_HITS)) {
+      const entry = found.get(row.meetingId) ?? { score: 0, offsets: [] }
+      const ranks = scores.get(row.meetingId) ?? []
+      if (ranks.length < RELEVANCE_SCORED_HITS) {
+        ranks.push(row.rank)
+        entry.score = -ranks.reduce((sum, rank) => sum + rank, 0)
+      }
+      scores.set(row.meetingId, ranks)
+      if (row.offsetMs !== null) (entry.offsets as number[]).push(row.offsetMs)
+      found.set(row.meetingId, entry)
+    }
+    return found
   }
 
   /**

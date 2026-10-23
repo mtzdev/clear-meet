@@ -1045,3 +1045,85 @@ suite('Grupos', () => {
     expect(result.skipped).toBe(0)
   })
 })
+
+suite('Perguntas ao grupo', () => {
+  const ready = { status: 'ready' as const, model: 'm', updatedAt: days(20) }
+
+  async function populate(): Promise<LibraryService> {
+    const lines = (text: string) => makeTranscript([{ speaker: 'Ana', startMs: 7000, text }])
+    await createFolder(
+      root,
+      'a',
+      spec('a', 'Daily', 10, {
+        meeting: { groupId: 'g1', durationMs: 60_000, transcript: ready },
+        transcript: lines('Vamos adiar o lançamento do contrato')
+      })
+    )
+    await createFolder(
+      root,
+      'b',
+      spec('b', 'Daily 2', 11, {
+        meeting: { groupId: 'g1', durationMs: 120_000, transcript: ready },
+        transcript: lines('Falamos do orçamento e da equipe')
+      })
+    )
+    await createFolder(
+      root,
+      'c',
+      spec('c', 'Sem transcrição', 12, {
+        meeting: { groupId: 'g1', transcript: { ...ready, status: 'none' } }
+      })
+    )
+    await createFolder(
+      root,
+      'd',
+      spec('d', 'Outro grupo', 13, {
+        meeting: { groupId: 'g2', transcript: ready },
+        transcript: lines('contrato contrato contrato')
+      })
+    )
+    const { service } = createService({ groupIds: () => Promise.resolve(['g1', 'g2']) })
+    await sync(service)
+    return service
+  }
+
+  it('lista as Reuniões do grupo, da mais recente para a mais antiga, com a situação da Transcrição', async () => {
+    const service = await populate()
+    const meetings = await service.groupMeetings('g1')
+    expect(meetings.map((item) => [item.id, item.hasTranscript])).toEqual([
+      ['c', false],
+      ['b', true],
+      ['a', true]
+    ])
+    expect(meetings[1]).toMatchObject({
+      name: 'Daily 2',
+      durationMs: 120_000,
+      folder: join(root, 'b')
+    })
+    expect(await service.groupMeetings('g3')).toEqual([])
+  })
+
+  it('mede a relevância só das Reuniões pedidas, com palavras em OU e os Instantes que casam', async () => {
+    const service = await populate()
+    const found = await service.relevanceFor(['a', 'b', 'c'], '"contrato"* OR "orcamento"*')
+    expect([...found.keys()].sort()).toEqual(['a', 'b'])
+    expect(found.get('a')?.offsets).toEqual([7000])
+    expect(found.get('a')?.score).toBeGreaterThan(0)
+    expect(found.get('b')?.offsets).toEqual([7000])
+    // Reunião de fora do pedido (d) nunca aparece, mesmo casando mais.
+    expect(found.has('d')).toBe(false)
+  })
+
+  it('uma Reunião que casa mais palavras pontua mais', async () => {
+    const service = await populate()
+    const found = await service.relevanceFor(['a', 'b'], '"lancamento"* OR "contrato"* OR "adiar"*')
+    expect(found.has('b')).toBe(false)
+    expect(found.get('a')?.score).toBeGreaterThan(0)
+  })
+
+  it('pedido vazio ou sem resultados devolve um mapa vazio', async () => {
+    const service = await populate()
+    expect((await service.relevanceFor([], '"x"*')).size).toBe(0)
+    expect((await service.relevanceFor(['a'], '"inexistente"*')).size).toBe(0)
+  })
+})

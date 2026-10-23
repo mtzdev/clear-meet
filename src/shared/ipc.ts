@@ -5,6 +5,13 @@ import type { CompactionChangedEvent } from './compaction'
 import type { ContentArea } from './content-area'
 import type { FfmpegInstallState, FfmpegStatus } from './ffmpeg'
 import type { FloatingInfo, NoteSavedEvent } from './floating'
+import type {
+  GroupChatEvent,
+  GroupChatSent,
+  GroupChatState,
+  GroupScope,
+  ScopeCandidate
+} from './group-chat'
 import type { GroupInput, GroupsOverview, GroupWithApplied } from './groups'
 import type { LibraryQuery, LibraryResult, MeetingDetail } from './library'
 import type { MeetingNote } from './meeting'
@@ -163,6 +170,21 @@ export interface IpcContract {
   /** Para a resposta em geração (o que já chegou fica salvo). */
   'chat:stop': { request: { folder: string }; response: null }
   'chat:clear': { request: { folder: string }; response: Result<null> }
+  /** Conversa de um grupo: mensagens, a resposta em geração e o escopo escolhido. */
+  'groupChat:get': { request: { groupId: string }; response: Result<GroupChatState> }
+  /** Reuniões do grupo que o escopo pode pegar, com a situação da Transcrição. */
+  'groupChat:meetings': { request: { groupId: string }; response: Result<ScopeCandidate[]> }
+  'groupChat:setScope': {
+    request: { groupId: string; scope: GroupScope }
+    response: Result<GroupScope>
+  }
+  /** Pergunta ao grupo; `text: null` repete a última pergunta que ficou sem resposta. */
+  'groupChat:send': {
+    request: { groupId: string; text: string | null }
+    response: Result<GroupChatSent>
+  }
+  'groupChat:stop': { request: { groupId: string }; response: null }
+  'groupChat:clear': { request: { groupId: string }; response: Result<null> }
   /** Chaves de IA: o renderer só vê "configurada" e os últimos 4 caracteres. */
   'ai:getStatus': { request: void; response: AiStatus }
   'ai:setKey': { request: { provider: AiProvider; key: string }; response: Result<AiStatus> }
@@ -221,6 +243,8 @@ export interface IpcEventContract {
   'summary:changed': SummaryChangedEvent
   /** Resposta da Conversa chegando, concluída ou com erro. */
   'chat:event': ChatEvent
+  /** Resposta da Conversa de um grupo chegando, concluída ou com erro. */
+  'groupChat:event': GroupChatEvent
   /** A Compactação de uma Reunião mudou de estado ou avançou. */
   'compaction:changed': CompactionChangedEvent
   /** O índice da Biblioteca mudou: telas com lista de Reuniões consultam de novo. */
@@ -313,6 +337,12 @@ export const IPC_CHANNELS = {
   'chat:send': true,
   'chat:stop': true,
   'chat:clear': true,
+  'groupChat:get': true,
+  'groupChat:meetings': true,
+  'groupChat:setScope': true,
+  'groupChat:send': true,
+  'groupChat:stop': true,
+  'groupChat:clear': true,
   'ai:getStatus': true,
   'ai:setKey': true,
   'ai:clearKey': true,
@@ -348,6 +378,7 @@ export const IPC_EVENTS = {
   'transcript:changed': true,
   'summary:changed': true,
   'chat:event': true,
+  'groupChat:event': true,
   'compaction:changed': true,
   'library:changed': true,
   'update:changed': true,

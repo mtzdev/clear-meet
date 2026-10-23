@@ -31,6 +31,8 @@ export interface GroupServiceDeps {
   refresh(folder: string): Promise<void>
   /** A definição ou a participação mudou: as telas consultam de novo. */
   emitChanged(): void
+  /** O grupo saiu da definição (a Conversa dele deve ir junto). */
+  onDeleted?(id: string): Promise<void>
   newId(): string
   now(): number
   log?(message: string): void
@@ -216,6 +218,9 @@ export class GroupService {
         : null
     )
     if (!saved.ok) return saved
+    await this.deps.onDeleted?.(id).catch((error: unknown) => {
+      this.deps.log?.(`[grupos] não apagou a Conversa do grupo: ${String(error)}`)
+    })
     // Sem o grupo na definição, quem ainda aponta para ele já conta como sem grupo.
     let updated = 0
     let failed = 0

@@ -28,6 +28,7 @@ import {
   type RecordingState
 } from '@shared/recording'
 import { ChatService } from './ai/chat/service'
+import { GroupChatService } from './ai/group-chat/service'
 import { GeminiClient } from './ai/gemini'
 import { KeyStore } from './ai/keys'
 import { OpenAiCompatClient } from './ai/openai-compat'
@@ -54,6 +55,7 @@ import { createRecordingTray } from './floating/tray'
 import { createBarWindow, createNoteWindow, readDisplays } from './floating/windows'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
+import { GroupChatStore } from './groups/chat-store'
 import { GroupService } from './groups/service'
 import { GroupStore } from './groups/store'
 import { LibraryService } from './library/service'
@@ -448,8 +450,23 @@ if (!app.requestSingleInstanceLock()) {
       emitChanged: () => sendToRenderer('library:changed', null)
     })
 
+    const groupChat = new GroupChatService({
+      store: new GroupChatStore(meetingsDir),
+      groupExists: async (id) => (await groupStore.ids()).includes(id),
+      meetings: (id) => libraryIndex.groupMeetings(id),
+      relevance: (ids, fts) => libraryIndex.relevanceFor(ids, fts),
+      router: textRouter,
+      emit: (event) => sendToRenderer('groupChat:event', event),
+      now: () => Date.now(),
+      newId: () => randomUUID(),
+      log
+    })
+
     const groupService = new GroupService({
       store: groupStore,
+      onDeleted: async (id) => {
+        await groupChat.discard(id)
+      },
       meetingsDir,
       meetings: () => libraryIndex.indexedMeetings(),
       stats: () => libraryIndex.groupStats(),
@@ -524,7 +541,12 @@ if (!app.requestSingleInstanceLock()) {
         if (service.isBusy()) {
           return 'Há uma gravação em andamento. Troque a pasta quando ela terminar.'
         }
-        if (transcription.hasActive() || summary.hasActive() || chat.hasActive()) {
+        if (
+          transcription.hasActive() ||
+          summary.hasActive() ||
+          chat.hasActive() ||
+          groupChat.hasActive()
+        ) {
           return 'A IA está trabalhando em uma Reunião. Troque a pasta quando ela terminar.'
         }
         if (recovery.getReport().running) {
@@ -790,6 +812,14 @@ if (!app.requestSingleInstanceLock()) {
           send: (folder, text) => chat.send(folder, typeof text === 'string' ? text : null),
           stop: (folder) => chat.stop(folder),
           clear: (folder) => chat.clear(folder)
+        },
+        groupChat: {
+          get: (groupId) => groupChat.get(groupId),
+          meetings: (groupId) => groupChat.meetings(groupId),
+          setScope: (groupId, scope) => groupChat.setScope(groupId, scope),
+          send: (groupId, text) => groupChat.send(groupId, typeof text === 'string' ? text : null),
+          stop: (groupId) => groupChat.stop(groupId),
+          clear: (groupId) => groupChat.clear(groupId)
         },
         ai: {
           getStatus: () => keys.status(),

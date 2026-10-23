@@ -75,10 +75,11 @@ interface Harness {
   store: GroupStore
 }
 
-function createService(): Harness {
+function createService(onDeleted?: (id: string) => Promise<void>): Harness {
   const store = new GroupStore(() => root)
   const service = new GroupService({
     store,
+    ...(onDeleted ? { onDeleted } : {}),
     meetingsDir: () => root,
     meetings: () => indexed(store),
     stats: () => stats(store),
@@ -252,6 +253,30 @@ describe('criar, editar e apagar', () => {
       keep.value.group.id
     ])
     expect(await service.delete('nao-existe')).toMatchObject({ ok: false })
+  })
+
+  it('apagar o grupo avisa para a Conversa dele ir junto, e recusar não avisa', async () => {
+    const deleted: string[] = []
+    const { service } = createService((id) => {
+      deleted.push(id)
+      return Promise.resolve()
+    })
+    const made = await service.create(groupInput('Daily'), false)
+    const busy = await service.create(groupInput('Ocupado'), false)
+    if (!made.ok || !busy.ok) throw new Error('falhou')
+    await meetingFolder('B', { groupId: busy.value.group.id, status: 'recording' })
+    expect((await service.delete(busy.value.group.id)).ok).toBe(false)
+    expect(deleted).toEqual([])
+    expect((await service.delete(made.value.group.id)).ok).toBe(true)
+    expect(deleted).toEqual([made.value.group.id])
+  })
+
+  it('falha ao apagar a Conversa não impede apagar o grupo', async () => {
+    const { service } = createService(() => Promise.reject(new Error('sem permissão')))
+    const made = await service.create(groupInput('Daily'), false)
+    if (!made.ok) throw new Error('falhou')
+    expect((await service.delete(made.value.group.id)).ok).toBe(true)
+    expect((await service.overview()).groups).toEqual([])
   })
 
   it('apagar é recusado se uma Reunião do grupo ainda grava, e nada muda', async () => {

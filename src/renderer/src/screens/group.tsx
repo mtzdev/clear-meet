@@ -1,6 +1,16 @@
-import { ChevronLeft, FolderTree, LoaderCircle, Pencil, Trash2, Zap } from 'lucide-react'
+import {
+  ChevronLeft,
+  FolderTree,
+  List,
+  LoaderCircle,
+  MessageSquare,
+  Pencil,
+  Trash2,
+  Zap
+} from 'lucide-react'
 import { useState } from 'react'
 import { EmptyState } from '@/components/empty-state'
+import { AskTab } from '@/components/groups/ask-tab'
 import { GroupDialog } from '@/components/groups/group-dialog'
 import { Unavailable } from '@/components/groups/groups-overview'
 import { Screen } from '@/components/layout/screen'
@@ -76,6 +86,9 @@ function GroupLoader({ id }: { id: string }) {
   )
 }
 
+const PILL_TAB =
+  'h-8 flex-none rounded-full px-4 text-muted-foreground hover:text-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-primary dark:data-[state=active]:text-primary-foreground'
+
 function GroupView({
   group,
   editable,
@@ -104,98 +117,122 @@ function GroupView({
   }
 
   return (
-    <section aria-labelledby="screen-title" className="flex h-full min-h-0 flex-col">
-      <header className="border-border shrink-0 border-b px-4 py-3">
-        <div className="flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon-sm">
-            <a href={GROUPS_VIEW_HREF} aria-label="Voltar para Grupos">
-              <ChevronLeft aria-hidden />
-            </a>
-          </Button>
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <h1 id="screen-title" className="truncate text-base font-semibold tracking-tight">
-                {group.name}
-              </h1>
+    <Tabs
+      defaultValue="meetings"
+      aria-labelledby="screen-title"
+      className="flex h-full min-h-0 flex-col gap-0"
+      asChild
+    >
+      <section>
+        <header className="border-border shrink-0 border-b px-4 py-3">
+          <div className="flex items-center gap-3">
+            <Button asChild variant="ghost" size="icon-sm">
+              <a href={GROUPS_VIEW_HREF} aria-label="Voltar para Grupos">
+                <ChevronLeft aria-hidden />
+              </a>
+            </Button>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <h1 id="screen-title" className="truncate text-base font-semibold tracking-tight">
+                  {group.name}
+                </h1>
+                {group.rules && (
+                  <span className="bg-accent text-accent-foreground inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px]">
+                    <Zap className="size-3" aria-hidden />
+                    Automático
+                  </span>
+                )}
+              </div>
+              <p className="text-muted-foreground truncate text-xs">{stats.join(' · ')}</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!editable}
+              onClick={() => setEditing(true)}
+            >
+              <Pencil aria-hidden />
+              <span className="hidden min-[1000px]:inline">Editar</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!editable}
+              className="hover:text-destructive"
+              onClick={() => setDeleting(true)}
+            >
+              <Trash2 aria-hidden />
+              <span className="hidden min-[1000px]:inline">Apagar</span>
+            </Button>
+          </div>
+          {(group.description !== '' || group.rules) && (
+            <div className="mt-2 space-y-1.5 pl-11">
+              {group.description !== '' && (
+                <p className="text-muted-foreground text-sm">{group.description}</p>
+              )}
               {group.rules && (
-                <span className="bg-accent text-accent-foreground inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px]">
-                  <Zap className="size-3" aria-hidden />
-                  Automático
-                </span>
+                <ul className="flex flex-wrap gap-1">
+                  {describeRules(group.rules).map((line) => (
+                    <li
+                      key={line}
+                      className="bg-muted text-muted-foreground rounded-sm px-1.5 py-0.5 text-[11px]"
+                    >
+                      {line}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
-            <p className="text-muted-foreground truncate text-xs">{stats.join(' · ')}</p>
-          </div>
-          <Button variant="outline" size="sm" disabled={!editable} onClick={() => setEditing(true)}>
-            <Pencil aria-hidden />
-            <span className="hidden min-[1000px]:inline">Editar</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!editable}
-            className="hover:text-destructive"
-            onClick={() => setDeleting(true)}
+          )}
+        </header>
+
+        <div className="flex shrink-0 justify-center px-4 py-3">
+          <TabsList
+            aria-label="Seções do grupo"
+            className="border-border bg-card h-auto gap-1 rounded-full border p-1 shadow-sm"
           >
-            <Trash2 aria-hidden />
-            <span className="hidden min-[1000px]:inline">Apagar</span>
-          </Button>
-        </div>
-        {(group.description !== '' || group.rules) && (
-          <div className="mt-2 space-y-1.5 pl-11">
-            {group.description !== '' && (
-              <p className="text-muted-foreground text-sm">{group.description}</p>
-            )}
-            {group.rules && (
-              <ul className="flex flex-wrap gap-1">
-                {describeRules(group.rules).map((line) => (
-                  <li
-                    key={line}
-                    className="bg-muted text-muted-foreground rounded-sm px-1.5 py-0.5 text-[11px]"
-                  >
-                    {line}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-      </header>
-
-      {!editable && (
-        <div className="px-8 pt-3">
-          <Unavailable overview={{ message }} onRetry={onRetry} />
-        </div>
-      )}
-
-      <Tabs defaultValue="meetings" className="min-h-0 flex-1 gap-0">
-        <div className="border-border border-b px-4 py-2">
-          <TabsList aria-label="Seções do grupo">
-            <TabsTrigger value="meetings">Reuniões</TabsTrigger>
+            <TabsTrigger value="meetings" className={PILL_TAB}>
+              <List aria-hidden />
+              Reuniões
+            </TabsTrigger>
+            <TabsTrigger value="ask" className={PILL_TAB}>
+              <MessageSquare aria-hidden />
+              Perguntar
+            </TabsTrigger>
           </TabsList>
         </div>
+
+        {!editable && (
+          <div className="px-8 pt-3">
+            <Unavailable overview={{ message }} onRetry={onRetry} />
+          </div>
+        )}
+
         <TabsContent value="meetings" className="min-h-0 overflow-y-auto">
           <LibraryBrowser groupId={group.id} />
         </TabsContent>
-      </Tabs>
+        <TabsContent value="ask" className="min-h-0">
+          <AskTab groupId={group.id} editable={editable} />
+        </TabsContent>
 
-      <GroupDialog open={editing} onOpenChange={setEditing} group={group} />
-      <ConfirmDialog
-        open={deleting}
-        onOpenChange={setDeleting}
-        title={`Apagar o grupo “${group.name}”?`}
-        description={
-          <p>
-            {group.count > 0
-              ? `${meetingCountText(group.count)} ${group.count === 1 ? 'fica' : 'ficam'} sem grupo.`
-              : 'Nenhuma Reunião está neste grupo.'}{' '}
-            As Reuniões não são apagadas.
-          </p>
-        }
-        confirmLabel="Apagar grupo"
-        destructive
-        onConfirm={remove}
-      />
-    </section>
+        <GroupDialog open={editing} onOpenChange={setEditing} group={group} />
+        <ConfirmDialog
+          open={deleting}
+          onOpenChange={setDeleting}
+          title={`Apagar o grupo “${group.name}”?`}
+          description={
+            <p>
+              {group.count > 0
+                ? `${meetingCountText(group.count)} ${group.count === 1 ? 'fica' : 'ficam'} sem grupo.`
+                : 'Nenhuma Reunião está neste grupo.'}{' '}
+              As Reuniões não são apagadas.
+            </p>
+          }
+          confirmLabel="Apagar grupo"
+          destructive
+          onConfirm={remove}
+        />
+      </section>
+    </Tabs>
   )
 }

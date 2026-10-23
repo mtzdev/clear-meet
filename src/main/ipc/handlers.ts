@@ -4,6 +4,7 @@ import type { CleanupPreview, CleanupRequest, CleanupResult } from '@shared/clea
 import type { ContentArea } from '@shared/content-area'
 import type { FfmpegInstallState, FfmpegStatus } from '@shared/ffmpeg'
 import type { FloatingInfo } from '@shared/floating'
+import type { GroupChatSent, GroupChatState, GroupScope, ScopeCandidate } from '@shared/group-chat'
 import type { GroupInput, GroupsOverview, GroupWithApplied } from '@shared/groups'
 import type { IpcChannel, IpcHandlers } from '@shared/ipc'
 import type { LibraryQuery, LibraryResult, MeetingDetail } from '@shared/library'
@@ -101,6 +102,14 @@ export interface HandlerDeps {
     stop(folder: string): void
     clear(folder: string): Promise<Result<null>>
   }
+  groupChat: {
+    get(groupId: string): Promise<Result<GroupChatState>>
+    meetings(groupId: string): Promise<Result<ScopeCandidate[]>>
+    setScope(groupId: string, scope: GroupScope): Promise<Result<GroupScope>>
+    send(groupId: string, text: string | null): Promise<Result<GroupChatSent>>
+    stop(groupId: string): void
+    clear(groupId: string): Promise<Result<null>>
+  }
   ai: {
     getStatus(): AiStatus
     setKey(provider: AiProvider, key: string): Promise<Result<AiStatus>>
@@ -167,7 +176,10 @@ const FOLDER_CHANNELS = [
   'transcript:renameSpeaker',
   'summary:start',
   'chat:send',
-  'chat:clear'
+  'chat:clear',
+  'groupChat:setScope',
+  'groupChat:send',
+  'groupChat:clear'
 ] as const satisfies readonly IpcChannel[]
 
 function blockDuringRelocation(deps: HandlerDeps, handlers: IpcHandlers): IpcHandlers {
@@ -261,6 +273,15 @@ export function createIpcHandlers(deps: HandlerDeps): IpcHandlers {
       return null
     },
     'chat:clear': (request) => deps.chat.clear(request.folder),
+    'groupChat:get': (request) => deps.groupChat.get(request.groupId),
+    'groupChat:meetings': (request) => deps.groupChat.meetings(request.groupId),
+    'groupChat:setScope': (request) => deps.groupChat.setScope(request.groupId, request.scope),
+    'groupChat:send': (request) => deps.groupChat.send(request.groupId, request.text),
+    'groupChat:stop': (request) => {
+      deps.groupChat.stop(request.groupId)
+      return null
+    },
+    'groupChat:clear': (request) => deps.groupChat.clear(request.groupId),
     'ai:getStatus': () => deps.ai.getStatus(),
     'ai:setKey': (request) => deps.ai.setKey(request.provider, request.key),
     'ai:clearKey': (request) => deps.ai.clearKey(request.provider),

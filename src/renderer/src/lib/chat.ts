@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ChatMessage } from '@shared/chat'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ChatMessage, ChatPending, ChatSent } from '@shared/chat'
+import type { Result } from '@shared/recording'
 
-export interface ChatController {
+export interface ChatController<M extends ChatMessage = ChatMessage> {
   loaded: boolean
   loadError: string | null
-  messages: ChatMessage[]
+  messages: M[]
   /** Resposta em geração, com o texto que já chegou. */
   pending: { id: string; text: string } | null
   /** Erro da última resposta (a pergunta continua no histórico). */
@@ -15,14 +16,33 @@ export interface ChatController {
   clear: () => Promise<string | null>
 }
 
+/** Eventos de uma Conversa, já sem o identificador da Reunião ou do grupo. */
+export type ChatStreamEvent<M extends ChatMessage> =
+  | { type: 'delta'; messageId: string; text: string }
+  | { type: 'done'; messageId: string; message: M | null }
+  | { type: 'error'; messageId: string; message: string }
+
+/** Como uma Conversa fala com o main; o objeto precisa ser estável (use `useMemo`). */
+export interface ChatAdapter<M extends ChatMessage> {
+  load(): Promise<Result<{ messages: M[]; pending: ChatPending | null }>>
+  send(text: string | null): Promise<Result<ChatSent>>
+  stop(): void
+  clear(): Promise<Result<null>>
+  subscribe(handler: (event: ChatStreamEvent<M>) => void): () => void
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 /**
- * Conversa de uma Reunião. As respostas chegam por eventos do main; um evento pode vir antes
- * de o `send` responder, então o texto de respostas ainda desconhecidas fica guardado à parte.
+ * Estado de uma Conversa. As respostas chegam por eventos do main; um evento pode vir antes de
+ * o `send` responder, então o texto de respostas ainda desconhecidas fica guardado à parte.
  */
-export function useChat(folder: string, meetingId: string): ChatController {
+export function useChatSession<M extends ChatMessage>(adapter: ChatAdapter<M>): ChatController<M> {
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useState<M[]>([])
   const [pending, setPending] = useState<{ id: string; text: string } | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const pendingId = useRef<string | null>(null)
@@ -38,7 +58,7 @@ export function useChat(folder: string, meetingId: string): ChatController {
 
   useEffect(() => {
     let cancelled = false
-    void window.api.invoke('chat:get', { folder }).then(
+    adapter.load().then(
       (result) => {
         if (cancelled) return
         if (!result.ok) {
@@ -52,19 +72,18 @@ export function useChat(folder: string, meetingId: string): ChatController {
       },
       (error: unknown) => {
         if (cancelled) return
-        setLoadError(error instanceof Error ? error.message : String(error))
+        setLoadError(errorText(error))
         setLoaded(true)
       }
     )
     return () => {
       cancelled = true
     }
-  }, [folder, track])
+  }, [adapter, track])
 
   useEffect(
     () =>
-      window.api.on('chat:event', (event) => {
-        if (event.meetingId !== meetingId) return
+      adapter.subscribe((event) => {
         if (event.type === 'delta') {
           if (pendingId.current === event.messageId) {
             setPending((current) =>
@@ -94,42 +113,38 @@ export function useChat(folder: string, meetingId: string): ChatController {
         if (pendingId.current === event.messageId) track(null)
         else finished.current.add(event.messageId)
       }),
-    [meetingId, track]
+    [adapter, track]
   )
 
   const submit = useCallback(
     async (text: string | null): Promise<string | null> => {
       setFailure(null)
       try {
-        const result = await window.api.invoke('chat:send', { folder, text })
+        const result = await adapter.send(text)
         if (!result.ok) return result.error.message
         const { user, assistantId } = result.value
-        if (user) setMessages((current) => [...current, user])
+        if (user) setMessages((current) => [...current, user as M])
         if (!finished.current.delete(assistantId)) track(assistantId)
         return null
       } catch (error) {
-        return error instanceof Error ? error.message : String(error)
+        return errorText(error)
       }
     },
-    [folder, track]
+    [adapter, track]
   )
-
-  const stop = useCallback(() => {
-    void window.api.invoke('chat:stop', { folder })
-  }, [folder])
 
   const clear = useCallback(async (): Promise<string | null> => {
     try {
-      const result = await window.api.invoke('chat:clear', { folder })
+      const result = await adapter.clear()
       if (!result.ok) return result.error.message
       setMessages([])
       setFailure(null)
       track(null)
       return null
     } catch (error) {
-      return error instanceof Error ? error.message : String(error)
+      return errorText(error)
     }
-  }, [folder, track])
+  }, [adapter, track])
 
   return {
     loaded,
@@ -139,7 +154,25 @@ export function useChat(folder: string, meetingId: string): ChatController {
     failure,
     send: (text) => submit(text),
     retry: () => submit(null),
-    stop,
+    stop: () => adapter.stop(),
     clear
   }
+}
+
+/** Conversa de uma Reunião. */
+export function useChat(folder: string, meetingId: string): ChatController {
+  const adapter = useMemo<ChatAdapter<ChatMessage>>(
+    () => ({
+      load: () => window.api.invoke('chat:get', { folder }),
+      send: (text) => window.api.invoke('chat:send', { folder, text }),
+      stop: () => void window.api.invoke('chat:stop', { folder }),
+      clear: () => window.api.invoke('chat:clear', { folder }),
+      subscribe: (handler) =>
+        window.api.on('chat:event', (event) => {
+          if (event.meetingId === meetingId) handler(event)
+        })
+    }),
+    [folder, meetingId]
+  )
+  return useChatSession(adapter)
 }

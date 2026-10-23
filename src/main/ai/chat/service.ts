@@ -6,22 +6,17 @@ import {
   type ChatSent,
   type ChatState
 } from '@shared/chat'
-import type { AiProvider } from '@shared/ai'
 import type { RecordingError, Result } from '@shared/recording'
 import { appendChatMessage, clearChat, readChat } from '../../meetings/chat-store'
 import { sameFolder } from '../../meetings/paths'
 import { isDirectChild, readMeeting } from '../../meetings/repository'
 import { readTranscript } from '../../meetings/transcript-store'
-import { AI_MESSAGES, isAiError } from '../errors'
 import { formatMeetingForAi } from '../text/format'
 import { chatSystemPrompt } from '../text/prompts'
-import type { TextHooks, TextRequest, TextResult } from '../text/types'
+import type { TextRequest } from '../text/types'
+import { generateAnswer, type ChatTextRouter } from './answer'
 
-/** O que a Conversa usa do roteador de texto (permite testar sem rede). */
-export interface ChatTextRouter {
-  hasProvider(): boolean
-  run(request: TextRequest, signal: AbortSignal, hooks?: TextHooks): Promise<TextResult>
-}
+export type { ChatTextRouter } from './answer'
 
 export interface ChatDeps {
   meetingsDir(): string
@@ -172,65 +167,27 @@ export class ChatService {
 
   private async run(folder: string, active: Active, request: TextRequest): Promise<void> {
     const { meetingId, messageId } = active
-    let provider: AiProvider | undefined
-    let model: string | undefined
     const finish = (event: ChatEvent): void => {
       this.active.delete(folder)
       this.deps.emit(event)
     }
-    try {
-      const result = await this.deps.router.run(request, active.controller.signal, {
-        onDelta: (delta) => {
-          active.text += delta
-          this.deps.emit({ type: 'delta', meetingId, messageId, text: delta })
-        }
-      })
-      provider = result.provider
-      model = result.model
-      if (result.text.trim() === '') {
-        finish({ type: 'error', meetingId, messageId, message: AI_MESSAGES['bad-response'] })
-        return
-      }
-      const message = this.assistantMessage(messageId, result.text, provider, model, false)
-      await this.save(folder, message)
-      finish({ type: 'done', meetingId, messageId, message })
-    } catch (error) {
-      if (active.controller.signal.aborted) {
-        const partial = active.text.trim()
-        const message =
-          partial === ''
-            ? null
-            : this.assistantMessage(messageId, active.text, provider, model, true)
-        if (message) await this.save(folder, message)
-        finish({ type: 'done', meetingId, messageId, message })
-        return
-      }
-      this.deps.log(`[conversa] falhou: ${isAiError(error) ? error.kind : 'erro desconhecido'}`)
-      finish({
-        type: 'error',
-        meetingId,
-        messageId,
-        message: isAiError(error) ? error.message : AI_MESSAGES.unknown
-      })
+    const outcome = await generateAnswer({
+      router: this.deps.router,
+      request,
+      signal: active.controller.signal,
+      messageId,
+      streamed: active,
+      onDelta: (text) => this.deps.emit({ type: 'delta', meetingId, messageId, text }),
+      now: () => this.deps.now(),
+      log: (message) => this.deps.log(message),
+      logTag: '[conversa]'
+    })
+    if (outcome.type === 'error') {
+      finish({ type: 'error', meetingId, messageId, message: outcome.message })
+      return
     }
-  }
-
-  private assistantMessage(
-    id: string,
-    text: string,
-    provider: AiProvider | undefined,
-    model: string | undefined,
-    stopped: boolean
-  ): ChatMessage {
-    return {
-      id,
-      role: 'assistant',
-      text,
-      createdAt: new Date(this.deps.now()).toISOString(),
-      ...(provider ? { provider } : {}),
-      ...(model ? { model } : {}),
-      ...(stopped ? { stopped: true } : {})
-    }
+    if (outcome.message) await this.save(folder, outcome.message)
+    finish({ type: 'done', meetingId, messageId, message: outcome.message })
   }
 
   private async save(folder: string, message: ChatMessage): Promise<void> {

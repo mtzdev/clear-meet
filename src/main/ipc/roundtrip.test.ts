@@ -142,6 +142,24 @@ function fakeDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
       stop: () => undefined,
       clear: () => Promise.resolve(ok)
     },
+    groupChat: {
+      get: () =>
+        Promise.resolve({
+          ok: true,
+          value: {
+            messages: [],
+            pending: null,
+            pendingScope: [],
+            scope: { periodDays: 30, maxMeetings: 5, include: [], exclude: [] }
+          }
+        }),
+      meetings: () => Promise.resolve({ ok: true, value: [] }),
+      setScope: (_groupId, scope) => Promise.resolve({ ok: true, value: scope }),
+      send: () =>
+        Promise.resolve({ ok: true, value: { user: null, assistantId: 'a1', scope: [] } }),
+      stop: () => undefined,
+      clear: () => Promise.resolve(ok)
+    },
     ai: {
       getStatus: () => aiStatus,
       setKey: () => Promise.resolve({ ok: true, value: aiStatus }),
@@ -377,6 +395,7 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
       'compaction:changed',
       'ffmpeg:install',
       'floating:info',
+      'groupChat:event',
       'library:changed',
       'meetingsDir:progress',
       'notes:opened',
@@ -494,6 +513,70 @@ describe('IPC de ponta a ponta (renderer -> preload -> main)', () => {
     emit('chat:event', { type: 'delta', meetingId: 'm', messageId: 'a1', text: 'oi' })
     expect(received).toEqual(['running', 'delta'])
   })
+  it('os canais da Conversa do grupo chegam aos handlers e o evento volta ao renderer', async () => {
+    const calls: unknown[] = []
+    const scope = { periodDays: 7, maxMeetings: 3, include: ['a'], exclude: [] }
+    const { api, emit } = createWiredApi(
+      fakeDeps({
+        groupChat: {
+          get: (groupId) => {
+            calls.push(['get', groupId])
+            return Promise.resolve({
+              ok: true,
+              value: { messages: [], pending: null, pendingScope: [], scope }
+            })
+          },
+          meetings: (groupId) => {
+            calls.push(['meetings', groupId])
+            return Promise.resolve({ ok: true, value: [] })
+          },
+          setScope: (groupId, next) => {
+            calls.push(['setScope', groupId, next])
+            return Promise.resolve({ ok: true, value: next })
+          },
+          send: (groupId, text) => {
+            calls.push(['send', groupId, text])
+            return Promise.resolve({
+              ok: true,
+              value: { user: null, assistantId: 'a1', scope: [] }
+            })
+          },
+          stop: (groupId) => {
+            calls.push(['stop', groupId])
+          },
+          clear: (groupId) => {
+            calls.push(['clear', groupId])
+            return Promise.resolve(ok)
+          }
+        }
+      })
+    )
+    expect(await api.invoke('groupChat:get', { groupId: 'g' })).toMatchObject({ ok: true })
+    await api.invoke('groupChat:meetings', { groupId: 'g' })
+    expect(await api.invoke('groupChat:setScope', { groupId: 'g', scope })).toEqual({
+      ok: true,
+      value: scope
+    })
+    await api.invoke('groupChat:send', { groupId: 'g', text: 'Pergunta' })
+    await api.invoke('groupChat:send', { groupId: 'g', text: null })
+    expect(await api.invoke('groupChat:stop', { groupId: 'g' })).toBeNull()
+    expect(await api.invoke('groupChat:clear', { groupId: 'g' })).toEqual(ok)
+    expect(calls).toEqual([
+      ['get', 'g'],
+      ['meetings', 'g'],
+      ['setScope', 'g', scope],
+      ['send', 'g', 'Pergunta'],
+      ['send', 'g', null],
+      ['stop', 'g'],
+      ['clear', 'g']
+    ])
+
+    const received: string[] = []
+    api.on('groupChat:event', (event) => received.push(`${event.groupId}:${event.type}`))
+    emit('groupChat:event', { type: 'delta', groupId: 'g', messageId: 'a1', text: 'oi' })
+    expect(received).toEqual(['g:delta'])
+  })
+
   it('os canais de grupos chegam aos handlers com os dados do pedido', async () => {
     const calls: unknown[] = []
     const { api } = createWiredApi(

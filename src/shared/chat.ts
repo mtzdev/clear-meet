@@ -53,11 +53,11 @@ export type ChatEvent =
   | { type: 'done'; meetingId: string; messageId: string; message: ChatMessage | null }
   | { type: 'error'; meetingId: string; messageId: string; message: string }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function parseMessage(item: unknown): ChatMessage | null {
+export function parseChatMessage(item: unknown): ChatMessage | null {
   if (
     !isRecord(item) ||
     typeof item.id !== 'string' ||
@@ -88,7 +88,7 @@ export function parseChat(raw: unknown): ParseResult<ChatFile> {
   if (!Array.isArray(raw.messages)) return { ok: false, error: 'messages inválido' }
   const messages: ChatMessage[] = []
   for (const [index, item] of raw.messages.entries()) {
-    const message = parseMessage(item)
+    const message = parseChatMessage(item)
     if (!message) return { ok: false, error: `messages[${index}]: mensagem inválida` }
     messages.push(message)
   }

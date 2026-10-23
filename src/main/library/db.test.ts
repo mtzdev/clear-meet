@@ -166,6 +166,27 @@ suite('índice e busca', () => {
     ])
   })
 
+  it('relevance devolve os melhores trechos de cada Reunião pedida, melhores primeiro', () => {
+    db.upsert(row({ id: 'a', folderName: 'a' }), [
+      fragment('prazo do contrato', { offsetMs: 1000 }),
+      fragment('prazo prazo prazo do contrato assinado', { offsetMs: 2000 }),
+      fragment('nada a ver', { offsetMs: 3000 })
+    ])
+    db.upsert(row({ id: 'b', folderName: 'b' }), [fragment('contrato novo', { offsetMs: 9000 })])
+    db.upsert(row({ id: 'c', folderName: 'c' }), [fragment('contrato de fora', { offsetMs: 1 })])
+    const fts = '"prazo"* OR "contrato"*'
+    const rows = db.relevance(fts, ['a', 'b'], 1)
+    expect(rows.map((item) => [item.meetingId, item.offsetMs])).toEqual([
+      ['a', expect.any(Number)],
+      ['b', 9000]
+    ])
+    expect(rows.every((item) => item.rank < 0)).toBe(true)
+    const all = db.relevance(fts, ['a'], 5).filter((item) => item.meetingId === 'a')
+    expect(all.map((item) => item.offsetMs)).toEqual(expect.arrayContaining([1000, 2000]))
+    expect(all.map((item) => item.offsetMs)).not.toContain(3000)
+    expect(db.relevance(fts, [], 5)).toEqual([])
+  })
+
   it('o nome da Reunião pesa mais que um trecho da conversa na relevância', () => {
     db.upsert(row({ id: 'fala', folderName: 'fala', name: 'Outra coisa' }), [
       fragment('vamos falar de marketing')

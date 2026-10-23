@@ -1,13 +1,22 @@
 import type { ReactNode } from 'react'
 import { InstantLink } from '@/components/meeting/instant-link'
+import { CitationLink } from '@/components/meeting/citation-link'
+import { tokenizeGroupInline, type CitedMeeting } from '@shared/group-citations'
 import { tokenizeInline } from '@shared/instants'
 
-interface RichTextProps {
-  text: string
+interface InstantMode {
   /** Duração da Reunião: Instantes além dela não viram link. */
   durationMs: number | null
   onSeek: (ms: number) => void
 }
+
+interface CitationMode {
+  /** Reuniões que a resposta pode citar, pelo rótulo (`[R2 05:32]`). */
+  citations: ReadonlyMap<number, CitedMeeting>
+}
+
+type Mode = InstantMode | CitationMode
+type RichTextProps = { text: string } & Mode
 
 type Block =
   { type: 'paragraph'; lines: string[] } | { type: 'list'; ordered: boolean; items: string[] }
@@ -40,8 +49,12 @@ function toBlocks(text: string): Block[] {
   return blocks.filter((block) => block.type === 'list' || block.lines.length > 0)
 }
 
-function Inline({ text, durationMs, onSeek }: RichTextProps): ReactNode {
-  return tokenizeInline(text, durationMs).map((token, index) => {
+function Inline(props: RichTextProps): ReactNode {
+  const tokens =
+    'citations' in props
+      ? tokenizeGroupInline(props.text, props.citations)
+      : tokenizeInline(props.text, props.durationMs)
+  return tokens.map((token, index) => {
     switch (token.type) {
       case 'bold':
         return <strong key={index}>{token.text}</strong>
@@ -52,7 +65,19 @@ function Inline({ text, durationMs, onSeek }: RichTextProps): ReactNode {
           </code>
         )
       case 'instant':
-        return <InstantLink key={index} ms={token.ms} onSeek={onSeek} />
+        return 'onSeek' in props ? (
+          <InstantLink key={index} ms={token.ms} onSeek={props.onSeek} />
+        ) : null
+      case 'cite':
+        return (
+          <CitationLink
+            key={index}
+            meetingId={token.meetingId}
+            name={token.name}
+            ms={token.ms}
+            instant={token.instant}
+          />
+        )
       default:
         return token.text
     }
@@ -63,7 +88,12 @@ function Inline({ text, durationMs, onSeek }: RichTextProps): ReactNode {
  * Texto simples de uma resposta da IA: parágrafos, listas, negrito e código em linha. Os
  * Instantes citados como [mm:ss] viram links que levam o player até o trecho.
  */
-export function RichText({ text, durationMs, onSeek }: RichTextProps) {
+export function RichText(props: RichTextProps) {
+  const { text } = props
+  const mode: Mode =
+    'citations' in props
+      ? { citations: props.citations }
+      : { durationMs: props.durationMs, onSeek: props.onSeek }
   return (
     <div className="space-y-2 text-sm leading-relaxed break-words">
       {toBlocks(text).map((block, index) => {
@@ -76,7 +106,7 @@ export function RichText({ text, durationMs, onSeek }: RichTextProps) {
             >
               {block.items.map((item, itemIndex) => (
                 <li key={itemIndex}>
-                  <Inline text={item} durationMs={durationMs} onSeek={onSeek} />
+                  <Inline text={item} {...mode} />
                 </li>
               ))}
             </List>
@@ -87,7 +117,7 @@ export function RichText({ text, durationMs, onSeek }: RichTextProps) {
             {block.lines.map((line, lineIndex) => (
               <span key={lineIndex}>
                 {lineIndex > 0 && <br />}
-                <Inline text={line} durationMs={durationMs} onSeek={onSeek} />
+                <Inline text={line} {...mode} />
               </span>
             ))}
           </p>
